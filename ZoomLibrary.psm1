@@ -487,6 +487,7 @@ Write-Debug "ZoomLibrary module loaded"
 
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+Export-ModuleMember -Function Set-ZoomAuthToken
 Export-ModuleMember -Function Get-ZoomUser
 Export-ModuleMember -Function Get-ZoomUserExists
 Export-ModuleMember -Function Get-ZoomGroup
