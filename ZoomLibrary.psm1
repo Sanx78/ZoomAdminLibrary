@@ -1,4 +1,4 @@
-﻿Enum ZoomLicenseType {
+Enum ZoomLicenseType {
     Basic = 1
     Licensed = 2
     OnPrem = 3
@@ -68,6 +68,65 @@ function Get-ZoomGroup() {
     $thisGroup = $groups.groups | Where-object { $_.name -eq $groupName }
     return $thisGroup
 }
+
+<#
+    .Synopsis
+    Adds a new Zoom group
+
+    .Description
+    Creates and returns a new Zoom group
+
+    .Parameter GroupName
+    The name of the group
+
+    .Example
+    Add-ZoomGroup -groupName "Marketing Execs"
+#>
+function Add-ZoomGroup() {
+    Param([Parameter(Mandatory=$true)][System.String]$groupName)
+    $group = Get-ZoomGroup -groupName $groupName
+    if ($group -ne $null) {
+        Write-Error "Add-ZoomGroup: Group name ""$groupName"" already exists."
+        return $null
+    }
+    Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers $headers -Body (@{"name" = $groupName} | ConvertTo-Json) -Method POST
+    $thisGroup = Get-ZoomGroup -groupName $groupName
+    return $thisGroup
+}
+
+<#
+    .Synopsis
+    Removes a Zoom group
+
+    .Description
+    Removes a Zoom group
+
+    .Parameter GroupName
+    The name of the group
+
+    .Example
+    Remove-ZoomGroup -groupName "Marketing Execs"
+#>
+function Remove-ZoomGroup() {
+    Param([Parameter(Mandatory=$true)][System.String]$groupName)
+    $group = Get-ZoomGroup -groupName $groupName
+    if ($group -eq $null) {
+        Write-Error "Remove-ZoomGroup: Group name ""$groupName"" could not be found."
+        return $null
+    }
+    Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($group.id)" -Headers $headers -Method DELETE
+}
+
+<#
+    .Synopsis
+    Returns all Zoom users in the account
+
+    .Description
+    Returns an array of all Zoom users in the account.
+
+    .Example
+    Get-ZoomUsers
+#>
 
 <#
     .Synopsis
@@ -491,6 +550,8 @@ Export-ModuleMember -Function Set-ZoomAuthToken
 Export-ModuleMember -Function Get-ZoomUser
 Export-ModuleMember -Function Get-ZoomUserExists
 Export-ModuleMember -Function Get-ZoomGroup
+Export-ModuleMember -Function Add-ZoomGroup
+Export-ModuleMember -Function Remove-ZoomGroup
 Export-ModuleMember -Function Get-ZoomUsers
 Export-ModuleMember -Function Get-ZoomGroupUsers
 Export-ModuleMember -Function Add-ZoomUsersToGroup
