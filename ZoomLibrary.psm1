@@ -1,4 +1,4 @@
-Enum ZoomLicenseType {
+﻿Enum ZoomLicenseType {
     Basic = 1
     Licensed = 2
     OnPrem = 3
@@ -547,20 +547,19 @@ Write-Debug "ZoomLibrary module loaded"
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 Export-ModuleMember -Function Set-ZoomAuthToken
-Export-ModuleMember -Function Get-ZoomUser
-Export-ModuleMember -Function Get-ZoomUserExists
-Export-ModuleMember -Function Get-ZoomGroup
-Export-ModuleMember -Function Add-ZoomGroup
-Export-ModuleMember -Function Remove-ZoomGroup
-Export-ModuleMember -Function Get-ZoomUsers
-Export-ModuleMember -Function Get-ZoomGroupUsers
-Export-ModuleMember -Function Add-ZoomUsersToGroup
-Export-ModuleMember -Function Set-ZoomUserLicenseState
-Export-ModuleMember -Function Set-ZoomUserDetails
-Export-ModuleMember -Function Set-ZoomUserPassword
-Export-ModuleMember -Function Set-ZoomUserStatus
-Export-ModuleMember -Function Add-ZoomUser
-Export-ModuleMember -Function Remove-ZoomUser
-Export-ModuleMember -Function Add-ZoomUserAssistant
-Export-ModuleMember -Function Remove-ZoomUserAssistant
-
+Export-ModuleMember -Function Get-ZoomUser -Alias gzu
+Export-ModuleMember -Function Get-ZoomUserExists -Alias gzue
+Export-ModuleMember -Function Get-ZoomGroup -Alias gzg
+Export-ModuleMember -Function Add-ZoomGroup -Alias azg
+Export-ModuleMember -Function Remove-ZoomGroup -Alias rzg
+Export-ModuleMember -Function Get-ZoomUsers -Alias gzusers
+Export-ModuleMember -Function Get-ZoomGroupUsers -Alias gzgu
+Export-ModuleMember -Function Add-ZoomUsersToGroup -Alias azug
+Export-ModuleMember -Function Set-ZoomUserLicenseState -Alias szul
+Export-ModuleMember -Function Set-ZoomUserDetails -Alias szud
+Export-ModuleMember -Function Set-ZoomUserPassword -Alias szup
+Export-ModuleMember -Function Set-ZoomUserStatus -Alias szus
+Export-ModuleMember -Function Add-ZoomUser -Alias azu
+Export-ModuleMember -Function Remove-ZoomUser -Alias rzu
+Export-ModuleMember -Function Add-ZoomUserAssistant -Alias azua
+Export-ModuleMember -Function Remove-ZoomUserAssistant -Alias rzua
