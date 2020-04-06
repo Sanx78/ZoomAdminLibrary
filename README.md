@@ -1,3 +1,14 @@
 # ZoomAdminLibrary
 
-A basic PowerShell library for managing Zoom users and groups
+A basic PowerShell library for managing Zoom users and groups. Functions implemented include:
+* Querying and returning user information
+* Adding, changing and removing users
+* Adding and removing groups
+* Querying and modifying membership of groups
+* Querying and setting user delegates
+* Resetting users password
+
+Requires a JWT token for authorisation. See https://marketplace.zoom.us/docs/guides/auth/jwt for more information. Call ```Set-ZoomAuthToken -Token <token>``` before calling any other function.
+
+
+
