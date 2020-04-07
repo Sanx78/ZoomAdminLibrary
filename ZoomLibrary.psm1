@@ -1,4 +1,4 @@
-﻿Enum ZoomLicenseType {
+Enum ZoomLicenseType {
     Basic = 1
     Licensed = 2
     OnPrem = 3
@@ -146,7 +146,7 @@ function Get-ZoomUsers() {
     if ($page1.page_count -gt 1) {
         for ($count=2; $count -le $page1.page_count; $count++) {
             $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100&page_number=$count" -Headers $headers
-            Write-Debug "Get-ZoomUsers: Adding page $count containing $($page1.users.count) records."
+            Write-Debug "Get-ZoomUsers: Adding page $count containing $($page.users.count) records."
             $zoomusers += $page.users
             Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
         }
@@ -535,6 +535,82 @@ function Set-ZoomAuthToken() {
     $headers.Add('Authorization',"Bearer $authtoken")
 }
 
+<#
+    .Synopsis
+    Retrieves a user's meetings
+
+    .Description
+    Returns a list of Zoom meetings for the specified user
+
+    .Parameter Email
+    The email address of the user.
+
+    .Parameter MeetingType
+    The type of meeting to retrieve. Available options are: Live, Upcoming and Scheduled
+
+    .Example
+    Get-ZoomMeetings -email "jerome@cactus.email" -meetingType Upcoming
+#>
+function Get-ZoomMeetings() {
+    Param([Parameter(Mandatory=$true)][System.String]$email, [ZoomMeetingType]$meetingType)
+    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+        Write-Error "Get-ZoomMeetings: User ""$email"" could not be found."
+        return $null
+    }
+    if ($meetingType -eq $null) { $meetingType = [ZoomMeetingType]::Live }
+    $zoommeetings = @()
+    $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/meetings?page_size=100&type=$($meetingType.ToString().ToLower())" -Headers $headers
+    Write-Debug "Get-ZoomMeetings: $($page1.total_records) meetings in $($page1.page_count) pages. Adding page 1 containing $($page1.meetings.count) records."
+    $zoommeetings += $page1.meetings
+    if ($page1.page_count -gt 1) {
+        for ($count=2; $count -le $page1.page_count; $count++) {
+            $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/meetings?page_size=100&type=$($test.ToString().ToLower())&page_number=$page" -Headers $headers
+            Write-Debug "Get-ZoomMeetings: Adding page $count containing $($page.meetings.count) records."
+            $zoommeetings += $page.meetings
+            Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
+        }
+    }
+    return $zoommeetings
+}
+
+
+<#
+    .Synopsis
+    Retrieves the details of a meeting
+
+    .Description
+    Retrieves the details of a Zoom meeting based on meeting ID
+
+    .Parameter MeetingID
+    The numeric meeting ID
+
+    .Example
+    Get-ZoomMeetingDetails -meetingID 123456789
+#>
+function Get-ZoomMeetingDetails() {
+    Param([Parameter(Mandatory=$true)][System.Int32]$meetingID)
+    $meeting = Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID" -Headers $headers
+    return $meeting
+}
+
+<#
+    .Synopsis
+    Terminates a meeting
+
+    .Description
+    Terminates a live Zoom meeting based on meeting ID
+
+    .Parameter MeetingID
+    The numeric meeting ID
+
+    .Example
+    Stop-ZoomMeeting -meetingID 123456789
+#>
+function Stop-ZoomMeeting() {
+    Param([Parameter(Mandatory=$true)][System.Int32]$meetingID)
+    $meeting = Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID/status" -Headers $headers -Body ( @{"action" = "end"} | ConvertTo-Json) -Method PUT
+}
+
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -563,3 +639,6 @@ Export-ModuleMember -Function Add-ZoomUser -Alias azu
 Export-ModuleMember -Function Remove-ZoomUser -Alias rzu
 Export-ModuleMember -Function Add-ZoomUserAssistant -Alias azua
 Export-ModuleMember -Function Remove-ZoomUserAssistant -Alias rzua
+Export-ModuleMember -Function Get-ZoomMeetings -Alias gzm
+Export-ModuleMember -Function Get-ZoomMeetingDetails -Alias gzmd
+Export-ModuleMember -Function Stop-ZoomMeeting -Alias szm
