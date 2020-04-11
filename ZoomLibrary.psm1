@@ -200,7 +200,7 @@ Class ZoomUser {
         $this.timezone = $user.timezone
         $this.department = $user.department
         $this.created = $user.created_at
-        $this.lastLoginTime = $user.last_login_time
+        if ($null -ne $user.last_login_time) { $this.lastLoginTime = $user.last_login_time } else { $this.lastLoginTime = [System.Datetime]::MinValue }
         $this.lastClientVersion = $user.last_client_version
         $this.hostKey = $user.host_key
         $this.JID = $user.jid
@@ -215,8 +215,7 @@ Class ZoomUser {
         $this.location = $user.location
 
         $this.groupIDs | ForEach-Object {
-            [ZoomGroup]$thisGroup = [ZoomGroup]::new()
-            $thisGroup.LoadById($_)
+            [ZoomGroup]$thisGroup = [ZoomGroup]::new($_)
             $this.groups += $thisGroup
         }
     }
@@ -271,12 +270,21 @@ Class ZoomGroup {
         $this.members = @()
         $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members?page_size=100" -Headers $global:headers
         Write-Debug "[ZoomGroup]::GetMembers - $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.members.count) records."
+        $page1.members | ForEach-Object {
+            $thisUser = [ZoomUser]::new($_.email)
+            $this.members += $thisUser
+            Write-Debug "[ZoomGroup]::GetMembers - adding $($_.email)"
+        }
         $this.members += $page1.members
         if ($page1.page_count -gt 1) {
             for ($count=2; $count -le $page1.page_count; $count++) {
-                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($group.id)/members?page_size=100&page_number=$count" -Headers $global:headers
+                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members?page_size=100&page_number=$count" -Headers $global:headers
                 Write-Debug "[ZoomGroup]::GetMembers: Adding page $count containing $($page1.members.count) records."
-                $this.members += $page.members
+                $page.members | ForEach-Object {
+                    $thisUser = [ZoomUser]::new($_.email)
+                    $this.members += $thisUser
+                    Write-Debug "[ZoomGroup]::GetMembers - adding $($_.email)"
+                }
                 Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
             }
         }
@@ -294,7 +302,7 @@ Class ZoomGroup {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members" -Headers $global:headers -Body ($body | ConvertTo-Json) -Method POST
     }
 
-    RemoveMembers([System.String]$email) {
+    RemoveMember([System.String]$email) {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members/$email" -Headers $global:headers -Method DELETE
     }
 
@@ -322,8 +330,7 @@ Class ZoomGroup {
 #>
 function Get-ZoomUser() {
     Param([Parameter(Mandatory=$true)][System.String]$email)
-    $user = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email" -Headers $global:headers
-    return $user
+    return [ZoomUser]::new($email)
 }
 
 <#
@@ -360,10 +367,7 @@ function Get-ZoomUserExists() {
 #>
 function Get-ZoomGroup() {
     Param([Parameter(Mandatory=$true)][System.String]$groupName)
-    $groups = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers $global:headers
-    Write-Debug "Get-ZoomGroup: Retrieved $($groups.total_records) groups."
-    $thisGroup = $groups.groups | Where-object { $_.name -eq $groupName }
-    return $thisGroup
+    return [ZoomGroup]::GetByName($groupName)
 }
 
 <#
@@ -424,17 +428,6 @@ function Remove-ZoomGroup() {
     .Example
     Get-ZoomUsers
 #>
-
-<#
-    .Synopsis
-    Returns all Zoom users in the account
-
-    .Description
-    Returns an array of all Zoom users in the account.
-
-    .Example
-    Get-ZoomUsers
-#>
 function Get-ZoomUsers() {
     $zoomusers = @()
     $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100" -Headers $global:headers
@@ -466,25 +459,13 @@ function Get-ZoomUsers() {
 #>
 function Get-ZoomGroupUsers() {
     Param([Parameter(Mandatory=$true)][System.String]$groupName)
-    $group = Get-ZoomGroup -groupName $groupName
+    [ZoomGroup]$group = Get-ZoomGroup -groupName $groupName
     if ($null -eq $group) {
         Write-Error "Get-ZoomGroupUsers: Group name ""$groupName"" could not be found."
         return $null
     }
-    Write-Debug "Get-ZoomGroupUsers: Group name ""$groupName"" resolved to group ID: $($group.id)"
-    $zoomgroupusers = @()
-    $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($group.id)/members?page_size=100" -Headers $global:headers
-    Write-Debug "Get-ZoomGroupUsers: $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.members.count) records."
-    $zoomgroupusers += $page1.members
-    if ($page1.page_count -gt 1) {
-        for ($count=2; $count -le $page1.page_count; $count++) {
-            $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($group.id)/members?page_size=100&page_number=$count" -Headers $global:headers
-            Write-Debug "Get-ZoomGroupUsers: Adding page $count containing $($page1.members.count) records."
-            $zoomgroupusers += $page.members
-            Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
-        }
-    }
-    return $zoomgroupusers
+    $group.GetMembers()
+    return $group.members
 }
 
 <#
@@ -505,22 +486,38 @@ function Get-ZoomGroupUsers() {
 #>
 function Add-ZoomUsersToGroup() {
     Param([Parameter(Mandatory=$true)]$emails, [Parameter(Mandatory=$true)][System.String]$groupName)
-    $group = Get-ZoomGroup -groupName $groupName
+    [ZoomGroup]$group = Get-ZoomGroup -groupName $groupName
     if ($null -eq $group) {
         Write-Error "Add-ZoomUsersToGroup: Group name ""$groupName"" could not be found."
         return $null
     }
-    $members = @()
-    $emails | ForEach-Object {
-        $member = New-Object -TypeName psobject
-        $member | Add-Member -Name email -Value $_ -MemberType NoteProperty
-        $members += $member
-    }
-    $body = New-Object -TypeName psobject
-    $body | Add-Member -Name members -Value $members -MemberType NoteProperty
-    $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($group.id)/members" -Headers $global:headers -Body ($body | ConvertTo-Json) -Method POST
+    $group.AddMembers($emails)
+}
 
-    return $result
+<#
+    .Synopsis
+    Removes Zoom user from a group
+
+    .Description
+    Removes a Zoom user from a group, based upon group name and user's email address
+
+    .Parameter Emails
+    The email addresses of the user
+
+    .Parameter GroupName
+    The name of the group
+
+    .Example
+    Remove-ZoomUserFromGroup -groupName "Marketing Execs" -emails "percy@cactus.email"
+#>
+function Remove-ZoomUserFromGroup() {
+    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.String]$groupName)
+    [ZoomGroup]$group = Get-ZoomGroup -groupName $groupName
+    if ($null -eq $group) {
+        Write-Error "Remove-ZoomUserFromGroup: Group name ""$groupName"" could not be found."
+        return $null
+    }
+    $group.RemoveMember($email)
 }
 
 <#
