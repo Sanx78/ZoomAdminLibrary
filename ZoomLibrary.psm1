@@ -179,7 +179,6 @@ Class ZoomUser {
 
     ZoomUser([System.String]$email) {
         $this.email = $email
-        $this.Load()
     }
 
     Load() {
@@ -251,6 +250,26 @@ Class ZoomUser {
 
         return $thisUser
     }
+
+    static [ZoomUser] GetUserStub([System.String]$id, [System.String]$email, [System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license) {
+        [ZoomUser]$thisUser = [ZoomUser]::new($email)
+        $thisUser.id = $id
+        $thisUser.firstName = $firstName
+        $thisUser.lastName = $lastName
+        $thisUser.licenseType = $license
+        return $thisUser
+    }
+
+    static [ZoomUser] GetUserDetails([System.String]$email) {
+        [ZoomUser]$thisUser = [ZoomUser]::new($email)
+        $thisUser.Load()
+        return $thisUser
+    }
+
+    static [System.Boolean] CheckExists([System.String]$email) {
+        $check = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/email?email=$email" -Headers $global:headers
+        return $check.existed_email
+    }
 }
 
 Class ZoomGroup {
@@ -271,17 +290,16 @@ Class ZoomGroup {
         $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members?page_size=100" -Headers $global:headers
         Write-Debug "[ZoomGroup]::GetMembers - $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.members.count) records."
         $page1.members | ForEach-Object {
-            $thisUser = [ZoomUser]::new($_.email)
+            $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
             $this.members += $thisUser
             Write-Debug "[ZoomGroup]::GetMembers - adding $($_.email)"
         }
-        $this.members += $page1.members
         if ($page1.page_count -gt 1) {
             for ($count=2; $count -le $page1.page_count; $count++) {
                 $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members?page_size=100&page_number=$count" -Headers $global:headers
                 Write-Debug "[ZoomGroup]::GetMembers: Adding page $count containing $($page1.members.count) records."
                 $page.members | ForEach-Object {
-                    $thisUser = [ZoomUser]::new($_.email)
+                    $thisUser = $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
                     $this.members += $thisUser
                     Write-Debug "[ZoomGroup]::GetMembers - adding $($_.email)"
                 }
@@ -330,7 +348,7 @@ Class ZoomGroup {
 #>
 function Get-ZoomUser() {
     Param([Parameter(Mandatory=$true)][System.String]$email)
-    return [ZoomUser]::new($email)
+    return [ZoomUser]::GetUserDetails($email)
 }
 
 <#
@@ -348,8 +366,7 @@ function Get-ZoomUser() {
 #>
 function Get-ZoomUserExists() {
     Param([Parameter(Mandatory=$true)][System.String]$email)
-    $check = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/email?email=$email" -Headers $global:headers
-    return $check.existed_email
+    return [ZoomUser]::CheckExists($email)
 }
 
 <#
@@ -450,6 +467,7 @@ function Get-ZoomUsers() {
 
     .Description
     Returns an array of all Zoom users in a particular group, based upon group name.
+    Users are returned as user 'stub' objects to avoid making too many API calls. To load all user details, call $user.Load() on each stub.
 
     .Parameter GroupName
     The name of the group
