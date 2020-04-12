@@ -213,13 +213,14 @@ Class ZoomUser {
         $this.jobTitle = $user.job_title
         $this.location = $user.location
 
+        if ($null -ne $this.groups) { $this.groups.Clear() }
         $this.groupIDs | ForEach-Object {
             [ZoomGroup]$thisGroup = [ZoomGroup]::new($_)
             $this.groups += $thisGroup
         }
     }
 
-    Update([System.String]$email, [System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber, [System.String]$groupName) {
+    Update([System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber) {
         $params = @{}
         if ($firstName -ne [System.String]::Empty ) { $params.Add("first_name", $firstName) }
         if ($lastName -ne [System.String]::Empty) { $params.Add("last_name", $lastName) }
@@ -229,7 +230,38 @@ Class ZoomUser {
         if ($company -ne [System.String]::Empty) { $params.Add("company", $company) }
         if ($location -ne [System.String]::Empty) { $params.Add("location", $location) }
         if ($phoneNumber -ne [System.String]::Empty) { $params.Add("phone_number", $phoneNumber) }
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email" -Headers $global:headers -Body ($params | ConvertTo-Json) -Method PATCH
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers $global:headers -Body ($params | ConvertTo-Json) -Method PATCH
+        $this.Load()
+    }
+
+    SetPassword([SecureString]$password) {
+        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
+        $UnsecurePassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+        Try {
+            Invoke-WebRequest -Uri "https://api.zoom.us/v2/users/$($this.email)/password" -Headers $global:headers -Body (@{"password" = $UnsecurePassword} | ConvertTo-Json) -Method PUT -ErrorAction Stop
+        } Catch {
+            $response = $_
+            $message = ($response.ErrorDetails.Message | ConvertFrom-Json).message
+            Write-Error "[ZoomUser]::SetPassword - Could not set password. Error: $message"
+        }
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+    }
+
+    SetStatus([System.Boolean]$enabled) {
+        if ($enabled) { $action = 'activate' } else { $action = 'deactivate' } 
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/status" -Headers $global:headers -Body (@{"action" = $action} | ConvertTo-Json) -Method PUT
+        $this.Load()
+    }
+
+    SetLicenseStatus([ZoomLicenseType]$license) {
+        if ($this.licenseType -ne $license) {
+            Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers $global:headers -Body (@{"type" = $license} | ConvertTo-Json) -Method PATCH
+            $this.Load()
+        }
+    }
+
+    Delete() {
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)?action=delete" -Headers $global:headers -Method DELETE
     }
 
     static [ZoomUser] Create([System.String]$email, [System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber, [System.String]$groupName) {
@@ -244,7 +276,7 @@ Class ZoomUser {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/users" -Headers $global:headers -Body ( $body | ConvertTo-Json) -Method POST
 
         [ZoomUser]$thisUser = [ZoomUser]::new($email)
-        $thisUser.Update($email, $timezone, $jobTitle, $company, $location, $phoneNumber)
+        $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
         $group = [ZoomGroup]::GetByName($groupName)
         $group.AddMembers(@($email))
 
@@ -270,6 +302,28 @@ Class ZoomUser {
         $check = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/email?email=$email" -Headers $global:headers
         return $check.existed_email
     }
+
+    static [ZoomUser[]] GetUsers() {
+        $zoomusers = @()
+        $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100" -Headers $global:headers
+        Write-Debug "[ZoomUser]::GetUsers - $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.users.count) records."
+        $page1.users | ForEach-Object {
+            $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
+            $zoomusers += $thisUser
+        }
+        if ($page1.page_count -gt 1) {
+            for ($count=2; $count -le $page1.page_count; $count++) {
+                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100&page_number=$count" -Headers $global:headers
+                Write-Debug "[ZoomUser]::GetUsers: Adding page $count containing $($page1.users.count) records."
+                $page.users | ForEach-Object {
+                    $thisUser = $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
+                    $zoomusers  += $thisUser
+                }
+                Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
+            }
+        }
+        return $zoomusers
+    }
 }
 
 Class ZoomGroup {
@@ -292,7 +346,6 @@ Class ZoomGroup {
         $page1.members | ForEach-Object {
             $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
             $this.members += $thisUser
-            Write-Debug "[ZoomGroup]::GetMembers - adding $($_.email)"
         }
         if ($page1.page_count -gt 1) {
             for ($count=2; $count -le $page1.page_count; $count++) {
@@ -301,7 +354,6 @@ Class ZoomGroup {
                 $page.members | ForEach-Object {
                     $thisUser = $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
                     $this.members += $thisUser
-                    Write-Debug "[ZoomGroup]::GetMembers - adding $($_.email)"
                 }
                 Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
             }
@@ -324,11 +376,25 @@ Class ZoomGroup {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members/$email" -Headers $global:headers -Method DELETE
     }
 
+    Delete() {
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)" -Headers $global:headers -Method DELETE
+    }
+
     static [ZoomGroup] GetByName([System.String]$name) {
         $groups = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers $global:headers
         Write-Debug "[ZoomGroup]::GetByName - Retrieved $($groups.total_records) groups."
         $thisGroup = $groups.groups | Where-object { $_.name -eq $groupName }
-        return [ZoomGroup]::new($thisGroup.id)
+        if ($null -ne $thisGroup) {
+            return [ZoomGroup]::new($thisGroup.id)
+        } else {
+            return $null
+        }
+    }
+
+    static [ZoomGroup] Create([System.String]$groupName) {
+        $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers $global:headers -Body (@{"name" = $groupName} | ConvertTo-Json) -Method POST
+        $thisGroup = [ZoomGroup]::new($result.id)
+        return $thisGroup
     }
 }
 #endregion UserClasses
@@ -407,8 +473,7 @@ function Add-ZoomGroup() {
         Write-Error "Add-ZoomGroup: Group name ""$groupName"" already exists."
         return $null
     }
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers $global:headers -Body (@{"name" = $groupName} | ConvertTo-Json) -Method POST
-    $thisGroup = Get-ZoomGroup -groupName $groupName
+    $thisGroup = [ZoomGroup]::Create($groupName)
     return $thisGroup
 }
 
@@ -432,7 +497,7 @@ function Remove-ZoomGroup() {
         Write-Error "Remove-ZoomGroup: Group name ""$groupName"" could not be found."
         return $null
     }
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($group.id)" -Headers $global:headers -Method DELETE
+    $group.Delete()
 }
 
 <#
@@ -446,19 +511,7 @@ function Remove-ZoomGroup() {
     Get-ZoomUsers
 #>
 function Get-ZoomUsers() {
-    $zoomusers = @()
-    $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100" -Headers $global:headers
-    Write-Debug "Get-ZoomUsers: $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.users.count) records."
-    $zoomusers += $page1.users
-    if ($page1.page_count -gt 1) {
-        for ($count=2; $count -le $page1.page_count; $count++) {
-            $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100&page_number=$count" -Headers $global:headers
-            Write-Debug "Get-ZoomUsers: Adding page $count containing $($page.users.count) records."
-            $zoomusers += $page.users
-            Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
-        }
-    }
-    return $zoomusers
+    return [ZoomUser]::GetUsers()
 }
 
 <#
@@ -560,7 +613,8 @@ function Set-ZoomUserLicenseState() {
         Write-Error "Set-ZoomUserLicenseState: User ""$email"" could not be found."
         return $null
     }
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email" -Headers $global:headers -Body (@{"type" = $license} | ConvertTo-Json) -Method PATCH
+    $thisUser = Get-ZoomUser -email $email
+    $thisUser.SetLicenseStatus($license)
 }
 
 <#
@@ -606,17 +660,8 @@ function Set-ZoomUserDetails() {
         Write-Error "Set-ZoomUserDetails: User ""$email"" could not be found."
         return $null
     }
-    $params = @{}
-    if ($firstName -ne [System.String]::Empty ) { $params.Add("first_name", $firstName) }
-    if ($lastName -ne [System.String]::Empty) { $params.Add("last_name", $lastName) }
-    if ($null -ne $license) { $params.Add("type", $license) }
-    if ($timezone -ne [System.String]::Empty) { $params.Add("timezone", $timezone) }
-    if ($jobTitle -ne [System.String]::Empty) { $params.Add("job_title", $jobTitle) }
-    if ($company -ne [System.String]::Empty) { $params.Add("company", $company) }
-    if ($location -ne [System.String]::Empty) { $params.Add("location", $location) }
-    if ($phoneNumber -ne [System.String]::Empty) { $params.Add("phone_number", $phoneNumber) }
-    
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email" -Headers $global:headers -Body ($params | ConvertTo-Json) -Method PATCH
+    [ZoomUser]$thisUser = [ZoomUser]::new($email)
+    $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
 }
 
 <#
@@ -630,26 +675,20 @@ function Set-ZoomUserDetails() {
     The email address of the user
 
     .Parameter Password
-    The password to set
+    The password to set, exressed as a SecureString
 
     .Example
-    Set-ZoomUserPassword -email "jerome@cactus.email" -password "Marketing101!"
+    Set-ZoomUserPassword -email "jerome@cactus.email" -password ConvertTo-SecureString -String "Marketing101!" -AsPlainText -Force
 #>
 function Set-ZoomUserPassword() {
     #' Performs no validation on password length and complexity
-    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.String]$password)
+    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][securestring]$password)
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
         Write-Error "Set-ZoomUserPassword: User ""$email"" could not be found."
         return $null
     }
-
-    Try {
-        Invoke-WebRequest -Uri "https://api.zoom.us/v2/users/$email/password" -Headers $global:headers -Body (@{"password" = $password} | ConvertTo-Json) -Method PUT -ErrorAction Stop
-    } Catch {
-        $response = $_
-        $message = ($response.ErrorDetails.Message | ConvertFrom-Json).message
-        Write-Error "Set-ZoomUserPassword: Could not set password. Error: $message"
-    }
+    [ZoomUser]$thisUser = [ZoomUser]::new($email)
+    $thisUser.SetPassword($password)
 }
 
 <#
@@ -674,8 +713,8 @@ function Set-ZoomUserStatus() {
         Write-Error "Set-ZoomUserPassword: User ""$email"" could not be found."
         return $null
     }
-    if ($enabled) { $action = 'activate' } else { $action = 'deactivate' } 
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/status" -Headers $global:headers -Body (@{"action" = $action} | ConvertTo-Json) -Method PUT
+    [ZoomUser]$thisUser = [ZoomUser]::new($email)
+    $thisUser.SetStatus($enabled)
 }
 
 <#
@@ -735,17 +774,8 @@ function Add-ZoomUser() {
         Write-Error "Add-ZoomUser: User ""$email"" already exists."
         return $null
     }
-    $userInfo = @{}
-    $userInfo.Add("first_name", $firstName)
-    $userInfo.Add("last_name", $lastName)
-    $userInfo.Add("email", $email)
-    $userInfo.Add("type", $license)
-    $body = @{}
-    $body.Add("action", "create")
-    $body.Add("user_info", $userinfo)
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/users" -Headers $global:headers -Body ( $body | ConvertTo-Json) -Method POST
-    Set-ZoomUserDetails -email $email -timezone $timezone -jobTitle $jobTitle -company $company -location $location -phoneNumber $phoneNumber
-    Add-ZoomUsersToGroup -emails $email -groupName $groupName
+    $thisUser = [ZoomUser]::Create($email, $firstName, $lastName, $license, $tiemzone, $jobTitle, $company, $location, $phoneNumber, $groupName)
+    return $thisUser
 }
 
 <#
@@ -767,8 +797,8 @@ function Remove-ZoomUser() {
         Write-Error "Remove-ZoomUser: User ""$email"" could not be found."
         return $null
     }
-
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($email)?action=delete" -Headers $global:headers -Method DELETE
+    [ZoomUser]$thisUser = [ZoomUser]::new($email)
+    $thisUser.Delete()
 }
 
 <#
@@ -790,7 +820,6 @@ function Get-ZoomUserAssistants() {
         Write-Error "Get-ZoomUserAssistants: User ""$email"" could not be found."
         return $null
     }
-
     $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($email)/assistants" -Headers $global:headers -Method GET
     return $result.assistants
 }
