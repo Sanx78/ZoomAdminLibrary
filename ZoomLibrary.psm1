@@ -176,6 +176,7 @@ Class ZoomUser {
     [System.String]$status
     [System.String]$jobTitle
     [System.String]$location
+    [ZoomUser[]]$assistants
 
     ZoomUser([System.String]$email) {
         $this.email = $email
@@ -218,6 +219,8 @@ Class ZoomUser {
             [ZoomGroup]$thisGroup = [ZoomGroup]::new($_)
             $this.groups += $thisGroup
         }
+
+        $this.GetAssistants()
     }
 
     Update([System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber) {
@@ -264,6 +267,26 @@ Class ZoomUser {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)?action=delete" -Headers $global:headers -Method DELETE
     }
 
+     GetAssistants() {
+        $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants" -Headers $global:headers -Method GET
+        if ($null -ne $this.assistants) { [ZoomUser[]]$this.assistants = @() }
+        $result.assistants | ForEach-Object {
+            $thisAssistant = [ZoomUser]::GetUserStub($_.id, $_.email)
+            $this.assistants += $thisAssistant
+        }
+    }
+
+    AddAssistant([System.String]$assistant) {
+        $body = New-Object -TypeName psobject
+        $body | Add-Member -Name assistants -Value @(@{"email" = $assistant}) -MemberType NoteProperty
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants" -Headers $global:headers -Body ($body | ConvertTo-Json) -Method POST
+    }
+
+    RemoveAssistant([System.String]$assistant) {
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants/$assistant" -Headers $global:headers -Method DELETE
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/schedulers/$assistant" -Headers $global:headers -Method DELETE
+    }
+
     static [ZoomUser] Create([System.String]$email, [System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber, [System.String]$groupName) {
         $userInfo = @{}
         $userInfo.Add("first_name", $firstName)
@@ -280,6 +303,12 @@ Class ZoomUser {
         $group = [ZoomGroup]::GetByName($groupName)
         $group.AddMembers(@($email))
 
+        return $thisUser
+    }
+
+    static [ZoomUser] GetUserStub([System.String]$id, [System.String]$email) {
+        [ZoomUser]$thisUser = [ZoomUser]::new($email)
+        $thisUser.id = $id
         return $thisUser
     }
 
@@ -803,33 +832,10 @@ function Remove-ZoomUser() {
 
 <#
     .Synopsis
-    Returns the assistants / delegates for a user
-
-    .Description
-    Returns an array of Zoom users configured as the assistants / delegates for another user, based on email address
-
-    .Parameter Email
-    The email address of the user
-
-    .Example
-    Get-ZoomUserAssistants -email "jerome@cactus.email"
-#>
-function Get-ZoomUserAssistants() {
-    Param([Parameter(Mandatory=$true)][System.String]$email)
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Get-ZoomUserAssistants: User ""$email"" could not be found."
-        return $null
-    }
-    $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($email)/assistants" -Headers $global:headers -Method GET
-    return $result.assistants
-}
-
-<#
-    .Synopsis
     Adds a new assistant / delegate to a user
 
     .Description
-    Adds a new assistant / delegate to a user, based upon email addresses. Caveat: both the host and assistnt must be fully-licenses users.
+    Adds a new assistant / delegate to a user, based upon email addresses. Caveat: Zoom requires that both the host and assistant must be fully-licensed users.
 
     .Parameter Email
     The email address of the user to add the assistant to.
@@ -850,9 +856,8 @@ function Add-ZoomUserAssistant() {
         Write-Error "Add-ZoomUserAssistants: Assistant ""$assistant"" could not be found."
         return $null
     }
-    $body = New-Object -TypeName psobject
-    $body | Add-Member -Name assistants -Value @(@{"email" = $assistant}) -MemberType NoteProperty
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/assistants" -Headers $global:headers -Body ($body | ConvertTo-Json) -Method POST
+    [ZoomUser]$thisUser = [ZoomUser]::new($email)
+    $thisUser.AddAssistant($assistant)
 }
 
 <#
@@ -881,8 +886,8 @@ function Remove-ZoomUserAssistant() {
         Write-Error "Remove-ZoomUserAssistants: Assistant ""$assistant"" could not be found."
         return $null
     }
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/assistants/$assistant" -Headers $global:headers -Method DELETE
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/schedulers/$assistant" -Headers $global:headers -Method DELETE
+    [ZoomUser]$thisUser = [ZoomUser]::new($email)
+    $thisUser.RemoveAssistant($assistant)
 }
 
 <#
