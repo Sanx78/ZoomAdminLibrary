@@ -7,9 +7,6 @@ A basic PowerShell library for managing Zoom users and groups. Functions impleme
 * Querying and modifying membership of groups
 * Querying and setting user delegates
 * Resetting user's password
-* Running reports on Zoom usage, meetings per user, and meeting participants
+* Running reports on Zoom usage, meetings, webinars and participants
 
-Requires a JWT token for authorisation. See https://marketplace.zoom.us/docs/guides/auth/jwt for more information. Call ```Set-ZoomAuthToken -Token <token>``` before calling any other function.
-
-
-
+Requires an API Key and Secret for authentication. See https://marketplace.zoom.us/docs/guides/auth/jwt#key-secret for more information. Call ```Set-ZoomAuthToken -apiKey <apiKey> -apiSecret <apiSecret>``` before calling any other function.
