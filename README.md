@@ -10,3 +10,5 @@ A basic PowerShell library for managing Zoom users and groups. Functions impleme
 * Running reports on Zoom usage, meetings, webinars and participants
 
 Requires an API Key and Secret for authentication. See https://marketplace.zoom.us/docs/guides/auth/jwt#key-secret for more information. Call ```Set-ZoomAuthToken -apiKey <apiKey> -apiSecret <apiSecret>``` before calling any other function.
+
+For a full list of exported functions, call ```Get-Command ZoomLibrary```
