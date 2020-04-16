@@ -103,7 +103,7 @@ Class ZoomUsageReport {
         } else {
             $uri = "https://api.zoom.us/v2/report/daily"
         }
-        $report = Invoke-RestMethod -Uri $uri -Headers $global:headers
+        $report = Invoke-RestMethod -Uri $uri -Headers (Get-ZoomAuthHeader)
         $this.year = $report.year
         $this.month = $report.month
         $report.dates | ForEach-Object {
@@ -118,7 +118,7 @@ Class ZoomMeetingParticipantReport {
     [ZoomMeetingParticipant[]]$participants
 
     ZoomMeetingParticipantReport([System.String]$meetingID, [System.Boolean]$resolveNames) {
-        $report = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/meetings/$meetingID/participants?page-size=300" -Headers $global:headers
+        $report = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/meetings/$meetingID/participants?page-size=300" -Headers (Get-ZoomAuthHeader)
         $report.participants | ForEach-Object {
             Write-Debug "[ZoomMeetingParticipantReport]::new - Adding particpant with user_id: $($_.user_id)"
             $participant = [ZoomMeetingParticipant]::new($_, $resolveNames)
@@ -133,7 +133,7 @@ Class ZoomWebinarParticipantReport {
     [ZoomMeetingParticipant[]]$participants
 
     ZoomWebinarParticipantReport([System.String]$webinarID, [System.Boolean]$resolveNames) {
-        $report = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/webinars/$webinarID/participants?page-size=300" -Headers $global:headers
+        $report = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/webinars/$webinarID/participants?page-size=300" -Headers (Get-ZoomAuthHeader)
         $report.participants | ForEach-Object {
             Write-Debug "[ZoomWebinarParticipantReport]::new - Adding particpant with user_id: $($_.user_id)"
             $participant = [ZoomMeetingParticipant]::new($_, $resolveNames)
@@ -147,12 +147,12 @@ Class ZoomMeetingsReport {
     [ZoomMeetingInstance[]]$meetings
 
     ZoomMeetingsReport([System.String]$email, [System.DateTime]$from, [System.DateTime]$to) {
-        $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/users/$email/meetings?from=$($from.ToString("yyyy-MM-dd"))&to=$($to.ToString("yyyy-MM-dd"))&page_size=100" -Headers $global:headers
+        $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/users/$email/meetings?from=$($from.ToString("yyyy-MM-dd"))&to=$($to.ToString("yyyy-MM-dd"))&page_size=100" -Headers (Get-ZoomAuthHeader)
         Write-Debug "[ZoomMeetingsReport]::new - $($page1.total_records) meetings in $($page1.page_count) pages. Adding page 1 containing $($page1.meetings.count) records."
         $this.meetings += $page1.meetings
         if ($page1.page_count -gt 1) {
             for ($count=2; $count -le $page1.page_count; $count++) {
-                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/users/$email/meetings?from=$($from.ToString('yyyy-MM-dd'))&to=$($to.ToString('yyyy-MM-dd'))&page_size=100&page_number=$count" -Headers $global:headers
+                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/users/$email/meetings?from=$($from.ToString('yyyy-MM-dd'))&to=$($to.ToString('yyyy-MM-dd'))&page_size=100&page_number=$count" -Headers (Get-ZoomAuthHeader)
                 Write-Debug "ZoomMeetingsReport: Adding page $count containing $($page.meetings.count) records."
                 $this.meetings += $page.meetings
                 Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
@@ -202,7 +202,7 @@ Class ZoomUser {
             Write-Error "[ZoomUser]::Load No email address defined."
             Break
         }
-        $user = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers $global:headers
+        $user = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers (Get-ZoomAuthHeader)
         $this.id = $user.id
         $this.firstName = $user.first_name
         $this.lastName = $user.last_name
@@ -248,7 +248,7 @@ Class ZoomUser {
         if ($company -ne [System.String]::Empty) { $params.Add("company", $company) }
         if ($location -ne [System.String]::Empty) { $params.Add("location", $location) }
         if ($phoneNumber -ne [System.String]::Empty) { $params.Add("phone_number", $phoneNumber) }
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers $global:headers -Body ($params | ConvertTo-Json) -Method PATCH
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers (Get-ZoomAuthHeader) -Body ($params | ConvertTo-Json) -Method PATCH
         $this.Load()
     }
 
@@ -256,7 +256,7 @@ Class ZoomUser {
         $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
         $UnsecurePassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
         Try {
-            Invoke-WebRequest -Uri "https://api.zoom.us/v2/users/$($this.email)/password" -Headers $global:headers -Body (@{"password" = $UnsecurePassword} | ConvertTo-Json) -Method PUT -ErrorAction Stop
+            Invoke-WebRequest -Uri "https://api.zoom.us/v2/users/$($this.email)/password" -Headers (Get-ZoomAuthHeader) -Body (@{"password" = $UnsecurePassword} | ConvertTo-Json) -Method PUT -ErrorAction Stop
         } Catch {
             $response = $_
             $message = ($response.ErrorDetails.Message | ConvertFrom-Json).message
@@ -267,13 +267,13 @@ Class ZoomUser {
 
     SetStatus([System.Boolean]$enabled) {
         if ($enabled) { $action = 'activate' } else { $action = 'deactivate' } 
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/status" -Headers $global:headers -Body (@{"action" = $action} | ConvertTo-Json) -Method PUT
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/status" -Headers (Get-ZoomAuthHeader) -Body (@{"action" = $action} | ConvertTo-Json) -Method PUT
         $this.Load()
     }
 
     SetLicenseStatus([ZoomLicenseType]$license) {
         if ($this.licenseType -ne $license) {
-            Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers $global:headers -Body (@{"type" = $license} | ConvertTo-Json) -Method PATCH
+            Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers (Get-ZoomAuthHeader) -Body (@{"type" = $license} | ConvertTo-Json) -Method PATCH
             $this.Load()
         }
     }
@@ -286,16 +286,16 @@ Class ZoomUser {
         $features.Add("large_meeting", $largeMeeting)
         $features.Add("large_meeting_capacity", $largeMeetingCapacity)
         $params.Add("feature", $features)
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/settings" -Headers $global:headers -Body ($params | ConvertTo-Json) -Method PATCH
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/settings" -Headers (Get-ZoomAuthHeader) -Body ($params | ConvertTo-Json) -Method PATCH
         $this.Load()
     }
 
     Delete() {
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)?action=delete" -Headers $global:headers -Method DELETE
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)?action=delete" -Headers (Get-ZoomAuthHeader) -Method DELETE
     }
 
      GetAssistants() {
-        $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants" -Headers $global:headers -Method GET
+        $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants" -Headers (Get-ZoomAuthHeader) -Method GET
         if ($null -ne $this.assistants) { [ZoomUser[]]$this.assistants = @() }
         $result.assistants | ForEach-Object {
             $thisAssistant = [ZoomUser]::GetUserStub($_.id, $_.email)
@@ -306,12 +306,12 @@ Class ZoomUser {
     AddAssistant([System.String]$assistant) {
         $body = New-Object -TypeName psobject
         $body | Add-Member -Name assistants -Value @(@{"email" = $assistant}) -MemberType NoteProperty
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants" -Headers $global:headers -Body ($body | ConvertTo-Json) -Method POST
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants" -Headers (Get-ZoomAuthHeader) -Body ($body | ConvertTo-Json) -Method POST
     }
 
     RemoveAssistant([System.String]$assistant) {
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants/$assistant" -Headers $global:headers -Method DELETE
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/schedulers/$assistant" -Headers $global:headers -Method DELETE
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants/$assistant" -Headers (Get-ZoomAuthHeader) -Method DELETE
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/schedulers/$assistant" -Headers (Get-ZoomAuthHeader) -Method DELETE
     }
 
     static [ZoomUser] Create([System.String]$email, [System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber, [System.String]$groupName) {
@@ -323,7 +323,7 @@ Class ZoomUser {
         $body = @{}
         $body.Add("action", "create")
         $body.Add("user_info", $userinfo)
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users" -Headers $global:headers -Body ( $body | ConvertTo-Json) -Method POST
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users" -Headers (Get-ZoomAuthHeader) -Body ( $body | ConvertTo-Json) -Method POST
 
         [ZoomUser]$thisUser = [ZoomUser]::new($email)
         $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
@@ -355,13 +355,13 @@ Class ZoomUser {
     }
 
     static [System.Boolean] CheckExists([System.String]$email) {
-        $check = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/email?email=$email" -Headers $global:headers
+        $check = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/email?email=$email" -Headers (Get-ZoomAuthHeader)
         return $check.existed_email
     }
 
     static [ZoomUser[]] GetUsers() {
         $zoomusers = @()
-        $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100" -Headers $global:headers
+        $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100" -Headers (Get-ZoomAuthHeader)
         Write-Debug "[ZoomUser]::GetUsers - $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.users.count) records."
         $page1.users | ForEach-Object {
             $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
@@ -369,7 +369,7 @@ Class ZoomUser {
         }
         if ($page1.page_count -gt 1) {
             for ($count=2; $count -le $page1.page_count; $count++) {
-                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100&page_number=$count" -Headers $global:headers
+                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100&page_number=$count" -Headers (Get-ZoomAuthHeader)
                 Write-Debug "[ZoomUser]::GetUsers: Adding page $count containing $($page1.users.count) records."
                 $page.users | ForEach-Object {
                     $thisUser = $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
@@ -390,14 +390,14 @@ Class ZoomGroup {
 
     ZoomGroup([System.String]$id) {
         $this.id = $id
-        $group = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$id" -Headers $global:headers
+        $group = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$id" -Headers (Get-ZoomAuthHeader)
         $this.name = $group.name
         $this.totalMembers = $group.total_members
     }
 
     GetMembers() {
         $this.members = @()
-        $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members?page_size=100" -Headers $global:headers
+        $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members?page_size=100" -Headers (Get-ZoomAuthHeader)
         Write-Debug "[ZoomGroup]::GetMembers - $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.members.count) records."
         $page1.members | ForEach-Object {
             $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
@@ -405,7 +405,7 @@ Class ZoomGroup {
         }
         if ($page1.page_count -gt 1) {
             for ($count=2; $count -le $page1.page_count; $count++) {
-                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members?page_size=100&page_number=$count" -Headers $global:headers
+                $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members?page_size=100&page_number=$count" -Headers (Get-ZoomAuthHeader)
                 Write-Debug "[ZoomGroup]::GetMembers: Adding page $count containing $($page1.members.count) records."
                 $page.members | ForEach-Object {
                     $thisUser = $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
@@ -425,19 +425,19 @@ Class ZoomGroup {
         }
         $body = New-Object -TypeName psobject
         $body | Add-Member -Name members -Value $groupMembers -MemberType NoteProperty
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members" -Headers $global:headers -Body ($body | ConvertTo-Json) -Method POST
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members" -Headers (Get-ZoomAuthHeader) -Body ($body | ConvertTo-Json) -Method POST
     }
 
     RemoveMember([System.String]$email) {
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members/$email" -Headers $global:headers -Method DELETE
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members/$email" -Headers (Get-ZoomAuthHeader) -Method DELETE
     }
 
     Delete() {
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)" -Headers $global:headers -Method DELETE
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)" -Headers (Get-ZoomAuthHeader) -Method DELETE
     }
 
     static [ZoomGroup] GetByName([System.String]$name) {
-        $groups = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers $global:headers
+        $groups = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers (Get-ZoomAuthHeader)
         Write-Debug "[ZoomGroup]::GetByName - Retrieved $($groups.total_records) groups."
         $thisGroup = $groups.groups | Where-object { $_.name -eq $groupName }
         if ($null -ne $thisGroup) {
@@ -448,7 +448,7 @@ Class ZoomGroup {
     }
 
     static [ZoomGroup] Create([System.String]$groupName) {
-        $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers $global:headers -Body (@{"name" = $groupName} | ConvertTo-Json) -Method POST
+        $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers (Get-ZoomAuthHeader) -Body (@{"name" = $groupName} | ConvertTo-Json) -Method POST
         $thisGroup = [ZoomGroup]::new($result.id)
         return $thisGroup
     }
@@ -692,14 +692,20 @@ function Set-ZoomUserLicenseState() {
     .Parameter LargeMeeting
     A boolean value indicating if the user should be assigned the large meeting feature
 
-    .Parameter WebinarCapacity
+    .Parameter LargeMeetingCapacity
     The large meeting capacity to assign. Must be either 500 or 1000.
 
     .Example
     Set-ZoomUserFeatureState -email jerome@cactus.email -webinar -webinarCapacity 1000 -largeMeeting -largeMeetingCapacity 500
 #>
 function Set-ZoomUserFeatureState() {
-    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.Boolean]$webinar, [System.Int32]$webinarCapacity, [Parameter(Mandatory=$true)][System.Boolean]$largeMeeting, [System.Int32]$largeMeetingCapacity)
+    Param(
+        [Parameter(Mandatory=$true)][System.String]$email,
+        [Parameter(Mandatory=$true)][System.Boolean]$webinar,
+        [ValidateSet(100, 500, 1000, 3000, 5000, 10000)][System.Int32]$webinarCapacity,
+        [Parameter(Mandatory=$true)][System.Boolean]$largeMeeting,
+        [ValidateSet(500, 1000)][System.Int32]$largeMeetingCapacity
+    )
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
         Write-Error "Set-ZoomUserFeatureState: User ""$email"" could not be found."
         return $null
@@ -962,22 +968,25 @@ function Remove-ZoomUserAssistant() {
 
 <#
     .Synopsis
-    Sets the Zoom JSON Web Token
+    Sets the Zoom API Key and Secret
 
     .Description
-    Sets the Zoom JSON Web Token required for access. Must be called before any other function.
+    Sets the Zoom API Key and Secret required for the generation of JSON Web Tokens for authentication. Must be called before any other function.
     For more information, see: https://marketplace.zoom.us/docs/guides/auth/jwt 
 
-    .Parameter Token
-    The JWT defined for your application
+    .Parameter apiKey
+    Your application's API key
+
+    .Parameter apiKey
+    Your application's API secret
 
     .Example
-    Set-ZoomAuthToken -token "775914458cf8498080d96c8355774f4f75c8ab71da894900946eeeb2f25b315c"
+    Set-ZoomAuthToken -apiKey abc123 -apiSecret -xyz789
 #>
 function Set-ZoomAuthToken() {
-    Param([Parameter(Mandatory=$true)][System.String]$token)
-    $authtoken = $token
-    $global:headers.Add('Authorization',"Bearer $authtoken")
+    Param([Parameter(Mandatory=$true)][System.String]$apiKey, [Parameter(Mandatory=$true)][System.String]$apiSecret)
+    $global:api_key = $apiKey
+    $global:api_secret = $apiSecret
 }
 
 <#
@@ -1004,12 +1013,12 @@ function Get-ZoomMeetings() {
     }
     if ($null -eq $meetingType) { $meetingType = [ZoomMeetingType]::Live }
     $zoommeetings = @()
-    $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/meetings?page_size=100&type=$($meetingType.ToString().ToLower())" -Headers $global:headers
+    $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/meetings?page_size=100&type=$($meetingType.ToString().ToLower())" -Headers (Get-ZoomAuthHeader)
     Write-Debug "Get-ZoomMeetings: $($page1.total_records) meetings in $($page1.page_count) pages. Adding page 1 containing $($page1.meetings.count) records."
     $zoommeetings += $page1.meetings
     if ($page1.page_count -gt 1) {
         for ($count=2; $count -le $page1.page_count; $count++) {
-            $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/meetings?page_size=100&type=$($meetingType.ToString().ToLower())&page_number=$page" -Headers $global:headers
+            $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$email/meetings?page_size=100&type=$($meetingType.ToString().ToLower())&page_number=$page" -Headers (Get-ZoomAuthHeader)
             Write-Debug "Get-ZoomMeetings: Adding page $count containing $($page.meetings.count) records."
             $zoommeetings += $page.meetings
             Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
@@ -1034,7 +1043,7 @@ function Get-ZoomMeetings() {
 #>
 function Get-ZoomMeetingDetails() {
     Param([Parameter(Mandatory=$true)][System.String]$meetingID)
-    $meeting = Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID" -Headers $global:headers
+    $meeting = Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID" -Headers (Get-ZoomAuthHeader)
     return $meeting
 }
 
@@ -1053,7 +1062,7 @@ function Get-ZoomMeetingDetails() {
 #>
 function Stop-ZoomMeeting() {
     Param([Parameter(Mandatory=$true)][System.String]$meetingID)
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID/status" -Headers $global:headers -Body ( @{"action" = "end"} | ConvertTo-Json) -Method PUT
+    Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID/status" -Headers (Get-ZoomAuthHeader) -Body ( @{"action" = "end"} | ConvertTo-Json) -Method PUT
 }
 
 <#
@@ -1067,7 +1076,7 @@ function Stop-ZoomMeeting() {
     Get-ZoomRoles
 #>
 function Get-ZoomRoles() {
-    $roles = Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles" -Headers $global:headers -Method Get
+    $roles = Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles" -Headers (Get-ZoomAuthHeader) -Method Get
     Write-Debug "Get-ZoomRole: Retrieved $($roles.total_records) groups."
     return $roles.roles
 }
@@ -1113,12 +1122,12 @@ function Get-ZoomRoleUsers() {
         return $null
     }
     $roleusers = @()
-    $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members?page_size=100" -Headers $global:headers -Method Get
+    $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members?page_size=100" -Headers (Get-ZoomAuthHeader) -Method Get
     Write-Debug "Get-ZoomRoleUsers: $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.members.count) records."
     $roleusers += $page1.members
     if ($page1.page_count -gt 1) {
         for ($count=2; $count -le $page1.page_count; $count++) {
-            $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members?page_size=100&page_number=$count" -Headers $global:headers
+            $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members?page_size=100&page_number=$count" -Headers (Get-ZoomAuthHeader)
             Write-Debug "Get-ZoomRoleUsers: Adding page $count containing $($page.members.count) records."
             $roleusers += $page.members
             Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
@@ -1168,7 +1177,7 @@ function Set-ZoomRoleUsers() {
     }
     $body = New-Object -TypeName psobject
     $body | Add-Member -Name members -Value $members -MemberType NoteProperty
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members" -Headers $global:headers -Body ($body | ConvertTo-Json) -Method Post
+    Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members" -Headers (Get-ZoomAuthHeader) -Body ($body | ConvertTo-Json) -Method Post
 }
 
 <#
@@ -1198,7 +1207,7 @@ function Remove-ZoomRoleUser() {
         Write-Error "Remove-ZoomRoleUser: User ""$email"" could not be found."
         return $null
     }
-    Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members/$email" -Headers $global:headers -Method Delete
+    Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members/$email" -Headers (Get-ZoomAuthHeader) -Method Delete
 }
 
 <#
@@ -1306,10 +1315,80 @@ function Get-ZoomWebinarParticipantReport() {
 }
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+#region Utility functions
 
-$global:headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-$global:headers.Add('Content-Type','application/json')
+<#
+    .Synopsis
+    Generates a JWT
+
+    .Description
+    Generates a short-lived JSON Web Token to authenticate with Zoom
+
+    .Parameter apiKey
+    Your application's API Key
+
+    .Parameter apiSecret
+    Your application's API Secret
+
+    .Parameter validForSeconds
+    The period of time for which the token should be valid.
+    For optimum security, you should generate a new JWT for each and every API call and the token validity should be no more than 30 seconds.
+
+    .Example
+    Get-JSONWebToken -apiKey abc123 -apiSecret 789xyz -validForSeconds 10
+
+    .Notes
+    This function was generated from a source script found here: https://www.reddit.com/r/PowerShell/comments/8bc3rb/generate_jwt_json_web_token_in_powershell/
+#>
+function Get-JSONWebToken (){
+    Param (
+        [Parameter(Mandatory = $True)][string]$apiKey,
+        [Parameter(Mandatory = $True)]$apiSecret,
+        [int]$validforSeconds = $null
+    )
+
+    $exp = [int][double]::parse((Get-Date -Date $((Get-Date).addseconds($ValidforSeconds).ToUniversalTime()) -UFormat %s)) # Grab Unix Epoch Timestamp and add desired expiration.
+
+    [hashtable]$header = @{alg = "HS256"; typ = "JWT"}
+    [hashtable]$payload = @{iss = $apiKey; exp = $exp}
+
+    $headerjson = $header | ConvertTo-Json -Compress
+    $payloadjson = $payload | ConvertTo-Json -Compress
+    
+    $headerjsonbase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($headerjson)).Split('=')[0].Replace('+', '-').Replace('/', '_')
+    $payloadjsonbase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($payloadjson)).Split('=')[0].Replace('+', '-').Replace('/', '_')
+
+    $ToBeSigned = $headerjsonbase64 + "." + $payloadjsonbase64
+
+    $SigningAlgorithm = New-Object System.Security.Cryptography.HMACSHA256
+
+    $SigningAlgorithm.Key = [System.Text.Encoding]::UTF8.GetBytes($apiSecret)
+    $Signature = [Convert]::ToBase64String($SigningAlgorithm.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($ToBeSigned))).Split('=')[0].Replace('+', '-').Replace('/', '_')
+    
+    $token = "$headerjsonbase64.$payloadjsonbase64.$Signature"
+    return $token
+}
+
+<#
+    .Synopsis
+    Gets the Zoom authentication HTTP header
+
+    .Description
+    Gets the header object required to authenticate with the Zoom API
+#>
+function Get-ZoomAuthHeader() {
+    $token = Get-JSONWebToken -apiKey $global:api_key -apiSecret $global:api_secret -ValidforSeconds 10
+
+    $header = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $header.Add('Content-Type','application/json')
+    $header.Add('Authorization',"Bearer $token")
+
+    return $header
+}
+
+#endregion Utility functions
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 Write-Debug "ZoomLibrary module loaded"
 
