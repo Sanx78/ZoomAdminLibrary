@@ -128,6 +128,21 @@ Class ZoomMeetingParticipantReport {
     }
 }
 
+Class ZoomWebinarParticipantReport {
+    [System.Int32]$totalRecords
+    [ZoomMeetingParticipant[]]$participants
+
+    ZoomWebinarParticipantReport([System.String]$webinarID, [System.Boolean]$resolveNames) {
+        $report = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/webinars/$webinarID/participants?page-size=300" -Headers $global:headers
+        $report.participants | ForEach-Object {
+            Write-Debug "[ZoomWebinarParticipantReport]::new - Adding particpant with user_id: $($_.user_id)"
+            $participant = [ZoomMeetingParticipant]::new($_, $resolveNames)
+            $this.participants += $participant
+        }
+        $this.totalRecords = $report.total_records
+    }
+}
+
 Class ZoomMeetingsReport {
     [ZoomMeetingInstance[]]$meetings
 
@@ -261,6 +276,18 @@ Class ZoomUser {
             Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers $global:headers -Body (@{"type" = $license} | ConvertTo-Json) -Method PATCH
             $this.Load()
         }
+    }
+
+    SetFeatureStatus([System.Boolean]$webinar, [System.Boolean]$largeMeeting, [System.Int32]$webinarCapacity, [System.Int32]$largeMeetingCapacity) {
+        $params = @{}
+        $features = @{}
+        $features.Add("webinar", $webinar)
+        $features.Add("webinar_capacity", $webinarCapacity)
+        $features.Add("large_meeting", $largeMeeting)
+        $features.Add("large_meeting_capacity", $largeMeetingCapacity)
+        $params.Add("feature", $features)
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/settings" -Headers $global:headers -Body ($params | ConvertTo-Json) -Method PATCH
+        $this.Load()
     }
 
     Delete() {
@@ -644,6 +671,49 @@ function Set-ZoomUserLicenseState() {
     }
     $thisUser = Get-ZoomUser -email $email
     $thisUser.SetLicenseStatus($license)
+}
+
+<#
+    .Synopsis
+    Sets the feature state of a user
+
+    .Description
+    Assigns or removes webinar and large meeting add-ons
+
+    .Parameter Email
+    The email address of the user to modify.
+
+    .Parameter Webinar
+    A boolean value indicating if the user should be assigned the webinar feature
+
+    .Parameter WebinarCapacity
+    The webinar capacity to assign. Must be one of 100, 500, 1000, 3000, 5000, 10000
+
+    .Parameter LargeMeeting
+    A boolean value indicating if the user should be assigned the large meeting feature
+
+    .Parameter WebinarCapacity
+    The large meeting capacity to assign. Must be either 500 or 1000.
+
+    .Example
+    Set-ZoomUserFeatureState -email jerome@cactus.email -webinar -webinarCapacity 1000 -largeMeeting -largeMeetingCapacity 500
+#>
+function Set-ZoomUserFeatureState() {
+    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.Boolean]$webinar, [System.Int32]$webinarCapacity, [Parameter(Mandatory=$true)][System.Boolean]$largeMeeting, [System.Int32]$largeMeetingCapacity)
+    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+        Write-Error "Set-ZoomUserFeatureState: User ""$email"" could not be found."
+        return $null
+    }
+    if ( $webinar -eq $true -and ($webinarCapacity -ne 100 -and $webinarCapacity -ne 500 -and $webinarCapacity -ne 1000 -and $webinarCapacity -ne 3000 -and $webinarCapacity -ne 5000 -and $webinarCapacity -ne 10000)) {
+        Write-Error "Set-ZoomUserFeatureState: Invalid webinarCapacity value."
+        return $null
+    }
+    if ( $largeMeeting -eq $true -and ($largeMeetingCapacity -ne 500 -and $largeMeetingCapacity -ne 1000)) {
+        Write-Error "Set-ZoomUserFeatureState: Invalid largeMeetingCapacity value."
+        return $null
+    }
+    $thisUser = Get-ZoomUser -email $email
+    $thisUser.SetFeatureStatus($webinar, $largeMeeting, $webinarCapacity, $largeMeetingCapacity)
 }
 
 <#
@@ -1067,6 +1137,7 @@ function Get-ZoomRoleUsers() {
     .Parameter Email
     The email addresses of the users to add as an array of strings. Will also accept a string containing a single address.
     Currently, no more than 30 users can be added to a role in a single call.
+    Note: roles are not cumulative. A user can only be assigned one role.
 
     .Parameter RoleName
     The role name
@@ -1199,7 +1270,8 @@ function Get-ZoomMeetingReport() {
     The ID of the meeting. Can be the meeting ID or the meeting instance UUID. If the meeting ID is passed, it will show details of the last instance of that meeting.
 
     .Parameter ResolveNames
-    The ResolveNames switch attempts to retrieve each participant's name and email. THis can only be completed for participants that are part of your account.
+    The ResolveNames switch attempts to retrieve each participant's name and email. This can only be completed for participants that are part of your account.
+    Note: Enabling this feature adds an extra API call for each participant, and can heavily impact performance.
 
     .Example
     Get-ZoomMeetingParticipantReport -meetingID abcefghh123456789== -resolveNames
@@ -1207,6 +1279,29 @@ function Get-ZoomMeetingReport() {
 function Get-ZoomMeetingParticipantReport() {
     Param([Parameter(Mandatory=$true)][System.String]$meetingID, [switch]$resolveNames)
     $report = [ZoomMeetingParticipantReport]::new($meetingID, $resolveNames.IsPresent)
+    return $report
+}
+
+<#
+    .Synopsis
+    Generates the Zoom webinar participant report
+
+    .Description
+    Generates the Zoom participant report for a specific webinar
+
+    .Parameter WebinarID
+    The ID of the webinar.
+
+    .Parameter ResolveNames
+    The ResolveNames switch attempts to retrieve each participant's name and email. This can only be completed for participants that are part of your account.
+    Note: Enabling this feature adds an extra API call for each participant, and can heavily impact performance.
+
+    .Example
+    Get-ZoomWebinarParticipantReport -meetingID 98765432109 -resolveNames
+#>
+function Get-ZoomWebinarParticipantReport() {
+    Param([Parameter(Mandatory=$true)][System.String]$webinarID, [switch]$resolveNames)
+    $report = [ZoomWebinarParticipantReport]::new($webinarID, $resolveNames.IsPresent)
     return $report
 }
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1237,6 +1332,7 @@ Export-ModuleMember -Function Add-ZoomUser -Alias azu
 Export-ModuleMember -Function Remove-ZoomUser -Alias rzu
 Export-ModuleMember -Function Add-ZoomUserAssistant -Alias azua
 Export-ModuleMember -Function Remove-ZoomUserAssistant -Alias rzua
+Export-ModuleMember -Function Set-ZoomUserFeatureState -Alias szufs
 Export-ModuleMember -Function Get-ZoomMeetings -Alias gzm
 Export-ModuleMember -Function Get-ZoomMeetingDetails -Alias gzmd
 Export-ModuleMember -Function Stop-ZoomMeeting -Alias szm
@@ -1248,3 +1344,4 @@ Export-ModuleMember -Function Remove-ZoomRoleUser -Alias rzru
 Export-ModuleMember -Function Get-ZoomUsageReport -Alias gzur
 Export-ModuleMember -Function Get-ZoomMeetingReport -Alias gzmr
 Export-ModuleMember -Function Get-ZoomMeetingParticipantReport -Alias gzmpr
+Export-ModuleMember -Function Get-ZoomWebinarParticipantReport -Alias gzwpr
