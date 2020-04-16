@@ -963,7 +963,7 @@ function Get-ZoomMeetings() {
     Get-ZoomMeetingDetails -meetingID 123456789
 #>
 function Get-ZoomMeetingDetails() {
-    Param([Parameter(Mandatory=$true)][System.Int32]$meetingID)
+    Param([Parameter(Mandatory=$true)][System.String]$meetingID)
     $meeting = Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID" -Headers $global:headers
     return $meeting
 }
@@ -982,7 +982,7 @@ function Get-ZoomMeetingDetails() {
     Stop-ZoomMeeting -meetingID 123456789
 #>
 function Stop-ZoomMeeting() {
-    Param([Parameter(Mandatory=$true)][System.Int32]$meetingID)
+    Param([Parameter(Mandatory=$true)][System.String]$meetingID)
     Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID/status" -Headers $global:headers -Body ( @{"action" = "end"} | ConvertTo-Json) -Method PUT
 }
 
