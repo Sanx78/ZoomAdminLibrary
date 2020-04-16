@@ -664,13 +664,30 @@ function Remove-ZoomUserFromGroup() {
     Set-ZoomUserLicenseState -email foo@cactus.email -license Licensed
 #>
 function Set-ZoomUserLicenseState() {
-    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][ZoomLicenseType]$license)
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Set-ZoomUserLicenseState: User ""$email"" could not be found."
-        return $null
+    [CmdletBinding(DefaultParameterSetName = 'email')]
+    Param(
+        [Parameter(ParameterSetName="email", Position=0, Mandatory=$true, ValueFromPipeline)]
+        [System.String]$email,
+        [Parameter(ParameterSetName="user", Position=0, Mandatory=$true, ValueFromPipeline)]
+        [ZoomUser]$user,
+        [Parameter(ParameterSetName="email", Position=1, Mandatory=$true)]
+        [Parameter(ParameterSetName="user", Position=1, Mandatory=$true)]
+        [ZoomLicenseType]$license
+    )
+
+    process {
+        if ($user) {
+            $thisUser = $user
+        }
+        if ($email) {
+            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+                Write-Error "Set-ZoomUserLicenseState: User ""$email"" could not be found."
+                return $null
+            }
+            $thisUser = Get-ZoomUser -email $email
+        }
+        $thisUser.SetLicenseStatus($license)
     }
-    $thisUser = Get-ZoomUser -email $email
-    $thisUser.SetLicenseStatus($license)
 }
 
 <#
@@ -699,27 +716,43 @@ function Set-ZoomUserLicenseState() {
     Set-ZoomUserFeatureState -email jerome@cactus.email -webinar -webinarCapacity 1000 -largeMeeting -largeMeetingCapacity 500
 #>
 function Set-ZoomUserFeatureState() {
+    [CmdletBinding(DefaultParameterSetName = 'email')]
     Param(
-        [Parameter(Mandatory=$true)][System.String]$email,
-        [Parameter(Mandatory=$true)][System.Boolean]$webinar,
-        [ValidateSet(100, 500, 1000, 3000, 5000, 10000)][System.Int32]$webinarCapacity,
-        [Parameter(Mandatory=$true)][System.Boolean]$largeMeeting,
-        [ValidateSet(500, 1000)][System.Int32]$largeMeetingCapacity
+        [Parameter(ParameterSetName="email", Position=0, Mandatory=$true, ValueFromPipeline)]
+        [System.String]$email,
+        [Parameter(ParameterSetName="user", Position=0, Mandatory=$true, ValueFromPipeline)]
+        [ZoomUser]$user,
+        [Parameter(Mandatory=$true)]
+        [System.Boolean]$webinar,
+        [ValidateSet(100, 500, 1000, 3000, 5000, 10000)]
+        [System.Int32]$webinarCapacity,
+        [Parameter(Mandatory=$true)]
+        [System.Boolean]$largeMeeting,
+        [ValidateSet(500, 1000)]
+        [System.Int32]$largeMeetingCapacity
     )
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Set-ZoomUserFeatureState: User ""$email"" could not be found."
-        return $null
+
+    process {
+        if ( $webinar -eq $true -and ($webinarCapacity -ne 100 -and $webinarCapacity -ne 500 -and $webinarCapacity -ne 1000 -and $webinarCapacity -ne 3000 -and $webinarCapacity -ne 5000 -and $webinarCapacity -ne 10000)) {
+            Write-Error "Set-ZoomUserFeatureState: Invalid webinarCapacity value."
+            return $null
+        }
+        if ( $largeMeeting -eq $true -and ($largeMeetingCapacity -ne 500 -and $largeMeetingCapacity -ne 1000)) {
+            Write-Error "Set-ZoomUserFeatureState: Invalid largeMeetingCapacity value."
+            return $null
+        }
+        if ($user) {
+            $thisUser = $user
+        }
+        if ($email) {
+            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+                Write-Error "Set-ZoomUserFeatureState: User ""$email"" could not be found."
+                return $null
+            }
+            $thisUser = Get-ZoomUser -email $email
+        }
+        $thisUser.SetFeatureStatus($webinar, $largeMeeting, $webinarCapacity, $largeMeetingCapacity)
     }
-    if ( $webinar -eq $true -and ($webinarCapacity -ne 100 -and $webinarCapacity -ne 500 -and $webinarCapacity -ne 1000 -and $webinarCapacity -ne 3000 -and $webinarCapacity -ne 5000 -and $webinarCapacity -ne 10000)) {
-        Write-Error "Set-ZoomUserFeatureState: Invalid webinarCapacity value."
-        return $null
-    }
-    if ( $largeMeeting -eq $true -and ($largeMeetingCapacity -ne 500 -and $largeMeetingCapacity -ne 1000)) {
-        Write-Error "Set-ZoomUserFeatureState: Invalid largeMeetingCapacity value."
-        return $null
-    }
-    $thisUser = Get-ZoomUser -email $email
-    $thisUser.SetFeatureStatus($webinar, $largeMeeting, $webinarCapacity, $largeMeetingCapacity)
 }
 
 <#
@@ -1006,7 +1039,10 @@ function Set-ZoomAuthToken() {
     Get-ZoomMeetings -email "jerome@cactus.email" -meetingType Upcoming
 #>
 function Get-ZoomMeetings() {
-    Param([Parameter(Mandatory=$true)][System.String]$email, [ZoomMeetingType]$meetingType)
+    Param(
+        [Parameter(Mandatory=$true)][System.String]$email,
+        [ZoomMeetingType]$meetingType
+    )
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
         Write-Error "Get-ZoomMeetings: User ""$email"" could not be found."
         return $null
@@ -1042,7 +1078,10 @@ function Get-ZoomMeetings() {
     Get-ZoomMeetingDetails -meetingID 123456789
 #>
 function Get-ZoomMeetingDetails() {
-    Param([Parameter(Mandatory=$true)][System.String]$meetingID)
+    Param(
+        [Parameter(Position=0, Mandatory=$true)]
+        [System.String]$meetingID
+    )
     $meeting = Invoke-RestMethod -Uri "https://api.zoom.us/v2/meetings/$meetingID" -Headers (Get-ZoomAuthHeader)
     return $meeting
 }
