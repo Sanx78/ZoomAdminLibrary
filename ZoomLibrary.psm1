@@ -252,6 +252,22 @@ Class ZoomUser {
         $this.Load()
     }
 
+    Save() {
+        $params = @{}
+        $params.Add("first_name", $this.firstName)
+        $params.Add("last_name", $this.lastName)
+        $params.Add("type", $this.licenseType)
+        $params.Add("timezone", $this.timezone)
+        $params.Add("job_title", $this.jobTitle)
+        $params.Add("company", $this.company)
+        $params.Add("location", $this.location)
+        $params.Add("phone_number", $this.phoneNumber)
+        $params.Add("department", $this.department)
+        $params.Add("vanity_name", $this.vanityURL)
+        $params.Add("use_pmi", $this.usePMI)
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers (Get-ZoomAuthHeader) -Body ($params | ConvertTo-Json) -Method PATCH
+    }
+
     SetPassword([SecureString]$password) {
         $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
         $UnsecurePassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
@@ -431,7 +447,7 @@ Class ZoomGroup {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members" -Headers (Get-ZoomAuthHeader) -Body ($body | ConvertTo-Json) -Method POST
     }
 
-    RemoveMember([ZoomUser]$user) {
+    RemoveMember([ZoomUser]$user) {        
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members/$($user.id)" -Headers (Get-ZoomAuthHeader) -Method DELETE
     }
 
@@ -752,11 +768,13 @@ function Remove-ZoomUsersFromGroup() {
 
     Process {
         if ($PSCmdlet.ParameterSetName -eq "email") {
-            Write-Debug "Resolving pipeline input to email addresses"
             $thisUser = Get-ZoomUser -email $email
-            $thisGroup.RemoveMember($thisUser)
+            if ($thisUser.groupIDs -contains $thisGroup.id) {
+                $thisGroup.RemoveMember($thisUser)
+            } else {
+                Write-Error "$email is not a member of $($thisGroup.name)"
+            }
         } elseif ($PSCmdlet.ParameterSetName -eq "user") {
-            Write-Debug "Resolving pipeline input to ZoomUser objects"
             $thisGroup.RemoveMember($user)
         }
     }
@@ -791,10 +809,10 @@ function Set-ZoomUserLicenseState() {
     )
 
     process {
-        if ($user) {
+        if ($PSCmdlet.ParameterSetName -eq 'user') {
             $thisUser = $user
         }
-        if ($email) {
+        if ($PSCmdlet.ParameterSetName -eq 'email') {
             if ( (Get-ZoomUserExists -email $email) -eq $false ) {
                 Throw "Set-ZoomUserLicenseState: User ""$email"" could not be found."
                 return $null
@@ -856,10 +874,10 @@ function Set-ZoomUserFeatureState() {
             Throw "Set-ZoomUserFeatureState: Invalid largeMeetingCapacity value."
             return $null
         }
-        if ($user) {
+        if ($PSCmdlet.ParameterSetName -eq 'user') {
             $thisUser = $user
         }
-        if ($email) {
+        if ($PSCmdlet.ParameterSetName -eq 'email') {
             if ( (Get-ZoomUserExists -email $email) -eq $false ) {
                 Throw "Set-ZoomUserFeatureState: User ""$email"" could not be found."
                 return $null
@@ -875,7 +893,8 @@ function Set-ZoomUserFeatureState() {
     Modifies a user's profile details
 
     .Description
-    Modifies a Zoom user's name, licensed state, job title, timezone, company name, location and phone number
+    Modifies a Zoom user's name, licensed state, job title, timezone, company name, location and phone number.
+    An alternative to calling Set-ZoomUserDetails is to modify the ZoomUser object directly, then call [ZoomUser].Save().
 
     .Parameter Email
     The email address of the user to modify.
@@ -908,7 +927,16 @@ function Set-ZoomUserFeatureState() {
     Set-ZoomUserDetails -email jerome@cactus.email -firstName Jerome -lastName Ramirez -license Licensed -timezone "Europe/London" -jobTitle "Head of Channel Marketing" -company "Cactus Industries (Europe)" -Location Basildon -phoneNumber "+44 1268 533333"
 #>
 function Set-ZoomUserDetails() {
-    Param([Parameter(Mandatory=$true)][System.String]$email, [System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber)
+    Param(
+        [Parameter(Mandatory=$true)][System.String]$email, 
+        [System.String]$firstName, 
+        [System.String]$lastName, 
+        [ZoomLicenseType]$license, 
+        [System.String]$timezone, 
+        [System.String]$jobTitle, 
+        [System.String]$company, 
+        [System.String]$location, 
+        [System.String]$phoneNumber)
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
         Throw "Set-ZoomUserDetails: User ""$email"" could not be found."
         return $null
@@ -922,26 +950,45 @@ function Set-ZoomUserDetails() {
     Sets the user's password
 
     .Description
-    Sets the password of the Zoom user
+    Sets the password of the Zoom user.
+    Note: This function performs no validation on password length or complexity.
 
     .Parameter Email
     The email address of the user
+
+    .Parameter User
+    The user's ZoomUser object
 
     .Parameter Password
     The password to set, exressed as a SecureString
 
     .Example
-    Set-ZoomUserPassword -email "jerome@cactus.email" -password ConvertTo-SecureString -String "Marketing101!" -AsPlainText -Force
+    Set-ZoomUserPassword -email "jerome@cactus.email" -password (ConvertTo-SecureString -String "Marketing101!" -AsPlainText -Force)
 #>
 function Set-ZoomUserPassword() {
-    #' Performs no validation on password length and complexity
-    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][securestring]$password)
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Throw "Set-ZoomUserPassword: User ""$email"" could not be found."
-        return $null
+    Param(
+        [CmdletBinding(DefaultParameterSetName="email")]
+        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
+        [System.String]$email,
+        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
+        [ZoomUser]$user,
+        [Parameter(ParameterSetName="user", Position=0, Mandatory=$true)]
+        [Parameter(ParameterSetName="email", Position=0, Mandatory=$true)]
+        [securestring]$password)
+
+    Process {
+        if ($PSCmdlet.ParameterSetName -eq 'user') {
+            $thisUser = $user
+        }
+        if ($PSCmdlet.ParameterSetName -eq 'email') {
+            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+                Throw "Set-ZoomUserPassword: User ""$email"" could not be found."
+                return $null
+            }
+            $thisUser = Get-ZoomUser -email $email
+        }
+        $thisUser.SetPassword($password)
     }
-    [ZoomUser]$thisUser = [ZoomUser]::new($email)
-    $thisUser.SetPassword($password)
 }
 
 <#
@@ -961,13 +1008,29 @@ function Set-ZoomUserPassword() {
     Set-ZoomUserStatus -email "jerome@cactus.email" -enabled $false
 #>
 function Set-ZoomUserStatus() {
-    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][boolean]$enabled)
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Throw "Set-ZoomUserPassword: User ""$email"" could not be found."
-        return $null
+    Param(
+    [CmdletBinding(DefaultParameterSetName="email")]
+    [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
+    [System.String]$email,
+    [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
+    [ZoomUser]$user,
+    [Parameter(ParameterSetName="user", Position=0, Mandatory=$true)]
+    [Parameter(ParameterSetName="email", Position=0, Mandatory=$true)]
+    [boolean]$enabled)
+
+    Process {
+        if ($PSCmdlet.ParameterSetName -eq 'user') {
+            $thisUser = $user
+        }
+        if ($PSCmdlet.ParameterSetName -eq 'email') {
+            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+                Throw "Set-ZoomUserPassword: User ""$email"" could not be found."
+                return $null
+            }
+            $thisUser = Get-ZoomUser -email $email
+        }
+        $thisUser.SetStatus($enabled)
     }
-    [ZoomUser]$thisUser = [ZoomUser]::new($email)
-    $thisUser.SetStatus($enabled)
 }
 
 <#
@@ -1041,17 +1104,33 @@ function Add-ZoomUser() {
     .Parameter Email
     The email address of the user
 
+    .Parameter User
+    The ZoomUser object of the user to remove
+
     .Example
     Remove-ZoomUser -email "francisco@cactus.email"
 #>
 function Remove-ZoomUser() {
-    Param([Parameter(Mandatory=$true)][System.String]$email)
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Throw "Remove-ZoomUser: User ""$email"" could not be found."
-        return $null
+    Param(
+    [CmdletBinding(DefaultParameterSetName="email")]
+    [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
+    [System.String]$email,
+    [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
+    [ZoomUser]$user
+
+    Process {
+        if ($PSCmdlet.ParameterSetName -eq 'user') {
+            $thisUser = $user
+        }
+        if ($PSCmdlet.ParameterSetName -eq 'email') {
+            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+                Throw "Remove-ZoomUser: User ""$email"" could not be found."
+                return $null
+            }
+            $thisUser = Get-ZoomUser -email $email
+        }
+        $thisUser.Delete()
     }
-    [ZoomUser]$thisUser = [ZoomUser]::new($email)
-    $thisUser.Delete()
 }
 
 <#
