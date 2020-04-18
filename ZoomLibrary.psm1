@@ -431,8 +431,8 @@ Class ZoomGroup {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members" -Headers (Get-ZoomAuthHeader) -Body ($body | ConvertTo-Json) -Method POST
     }
 
-    RemoveMember([System.String]$email) {
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members/$email" -Headers (Get-ZoomAuthHeader) -Method DELETE
+    RemoveMember([ZoomUser]$user) {
+        Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)/members/$($user.id)" -Headers (Get-ZoomAuthHeader) -Method DELETE
     }
 
     Delete() {
@@ -711,11 +711,11 @@ function Add-ZoomUsersToGroup() {
     .Description
     Removes one or more Zoom users from a group
 
-    .Parameter Emails
-    The email addresses of the user, either singular or as an array
+    .Parameter Email
+    The email address of the user to remove
 
-    .Parameter Users
-    The ZoomUser user object, either singular or as an array
+    .Parameter User
+    The ZoomUser user object
 
     .Parameter Group
     The group to remove users from, either as a ZoomGroup object or specified by name
@@ -727,9 +727,9 @@ function Remove-ZoomUsersFromGroup() {
     [CmdletBinding(DefaultParameterSetName="email")]
     Param(
         [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline=$true, Position=1)]
-        [System.String[]]$emails, 
+        [System.String]$email, 
         [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline=$true, Position=1)]
-        [ZoomUser[]]$users, 
+        [ZoomUser]$user, 
         [Parameter(ParameterSetName="user", Mandatory=$true, Position=0)]
         [Parameter(ParameterSetName="email", Mandatory=$true, Position=0)]
         $group
@@ -752,9 +752,12 @@ function Remove-ZoomUsersFromGroup() {
 
     Process {
         if ($PSCmdlet.ParameterSetName -eq "email") {
-            $thisGroup.RemoveMember($emails)
+            Write-Debug "Resolving pipeline input to email addresses"
+            $thisUser = Get-ZoomUser -email $email
+            $thisGroup.RemoveMember($thisUser)
         } elseif ($PSCmdlet.ParameterSetName -eq "user") {
-            $thisGroup.RemoveMember($users.email)
+            Write-Debug "Resolving pipeline input to ZoomUser objects"
+            $thisGroup.RemoveMember($user)
         }
     }
 }
@@ -1544,6 +1547,7 @@ Write-Debug "ZoomLibrary module loaded"
 
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+Export-ModuleMember -Function Get-ZoomAuthHeader
 Export-ModuleMember -Function Set-ZoomAuthToken
 Export-ModuleMember -Function Get-ZoomUser -Alias gzu
 Export-ModuleMember -Function Get-ZoomUserExists -Alias gzue
