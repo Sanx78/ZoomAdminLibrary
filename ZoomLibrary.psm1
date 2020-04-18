@@ -199,7 +199,7 @@ Class ZoomUser {
 
     Load() {
         if ( $null -eq $this.email) {
-            Write-Error "[ZoomUser]::Load No email address defined."
+            Throw "[ZoomUser]::Load No email address defined."
             Break
         }
         $user = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers (Get-ZoomAuthHeader)
@@ -260,7 +260,7 @@ Class ZoomUser {
         } Catch {
             $response = $_
             $message = ($response.ErrorDetails.Message | ConvertFrom-Json).message
-            Write-Error "[ZoomUser]::SetPassword - Could not set password. Error: $message"
+            Throw "[ZoomUser]::SetPassword - Could not set password. Error: $message"
         }
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
     }
@@ -326,10 +326,13 @@ Class ZoomUser {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/users" -Headers (Get-ZoomAuthHeader) -Body ( $body | ConvertTo-Json) -Method POST
 
         [ZoomUser]$thisUser = [ZoomUser]::new($email)
-        $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
-        $group = [ZoomGroup]::GetByName($groupName)
-        $group.AddMembers(@($email))
-
+        if ($timezone -or $jobTitle -or $company -or $location -or $phoneNumber) {
+            $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
+        }
+        if ($groupName) {
+            $group = [ZoomGroup]::GetByName($groupName)
+            $group.AddMembers(@($email))
+        }
         return $thisUser
     }
 
@@ -469,7 +472,11 @@ Class ZoomGroup {
     Get-ZoomUser -email foo@cactus.email
 #>
 function Get-ZoomUser() {
-    Param([Parameter(Mandatory=$true)][System.String]$email)
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [System.String]$email
+    )
     return [ZoomUser]::GetUserDetails($email)
 }
 
@@ -487,7 +494,11 @@ function Get-ZoomUser() {
     Get-ZoomUserExists -email foo@cactus.email
 #>
 function Get-ZoomUserExists() {
-    Param([Parameter(Mandatory=$true)][System.String]$email)
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [System.String]$email
+    )
     return [ZoomUser]::CheckExists($email)
 }
 
@@ -505,7 +516,11 @@ function Get-ZoomUserExists() {
     Get-ZoomGroup -groupName "Marketing Execs"
 #>
 function Get-ZoomGroup() {
-    Param([Parameter(Mandatory=$true)][System.String]$groupName)
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [System.String]$groupName
+    )
     return [ZoomGroup]::GetByName($groupName)
 }
 
@@ -521,12 +536,19 @@ function Get-ZoomGroup() {
 
     .Example
     Add-ZoomGroup -groupName "Marketing Execs"
+
+    .Outputs
+    A [ZoomGroup] object containing the newly-created group.
 #>
 function Add-ZoomGroup() {
-    Param([Parameter(Mandatory=$true)][System.String]$groupName)
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [System.String]$groupName
+    )
     $group = Get-ZoomGroup -groupName $groupName
     if ($null -ne $group) {
-        Write-Error "Add-ZoomGroup: Group name ""$groupName"" already exists."
+        Throw "Add-ZoomGroup: Group name ""$groupName"" already exists."
         return $null
     }
     $thisGroup = [ZoomGroup]::Create($groupName)
@@ -543,17 +565,32 @@ function Add-ZoomGroup() {
     .Parameter GroupName
     The name of the group
 
+    .Parameter Group
+    A [ZoomGroup] object representing the group to be deleted
+
     .Example
     Remove-ZoomGroup -groupName "Marketing Execs"
 #>
 function Remove-ZoomGroup() {
-    Param([Parameter(Mandatory=$true)][System.String]$groupName)
-    $group = Get-ZoomGroup -groupName $groupName
-    if ($null -eq $group) {
-        Write-Error "Remove-ZoomGroup: Group name ""$groupName"" could not be found."
-        return $null
+    [CmdletBinding(DefaultParameterSetName="name")]
+    Param(
+        [Parameter(ParameterSetName="name", Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [System.String]$groupName,
+        [Parameter(ParameterSetName="group", Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [ZoomGroup]$group
+    )
+
+    process {
+        if ($group) { $thisGroup = $group }
+        if ($groupName) {
+            $thisGroup = Get-ZoomGroup -groupName $groupName
+            if ($null -eq $thisGroup) {
+                Throw "Remove-ZoomGroup: Group name ""$groupName"" could not be found."
+                return $null
+            }
+        }
+        $thisGroup.Delete()
     }
-    $group.Delete()
 }
 
 <#
@@ -565,6 +602,9 @@ function Remove-ZoomGroup() {
 
     .Example
     Get-ZoomUsers
+
+    .Outputs
+    An array of [ZoomUser] objects.
 #>
 function Get-ZoomUsers() {
     return [ZoomUser]::GetUsers()
@@ -581,18 +621,34 @@ function Get-ZoomUsers() {
     .Parameter GroupName
     The name of the group
 
+    .Parameter Group
+    A [ZoomGroup] object representing the group to be enumerated
+
     .Example
     Get-ZoomGroupUsers -groupName "Marketing Execs"
 #>
 function Get-ZoomGroupUsers() {
-    Param([Parameter(Mandatory=$true)][System.String]$groupName)
-    [ZoomGroup]$group = Get-ZoomGroup -groupName $groupName
-    if ($null -eq $group) {
-        Write-Error "Get-ZoomGroupUsers: Group name ""$groupName"" could not be found."
-        return $null
+    [CmdletBinding(DefaultParameterSetName="name")]
+    Param(
+        [Parameter(ParameterSetName="name", Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [System.String]$groupName,
+        [Parameter(ParameterSetName="group", Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [ZoomGroup]$group
+    )
+
+    process {
+        if ($group) { $thisGroup = $group }
+        if ($groupName) {
+            [ZoomGroup]$thisGroup = Get-ZoomGroup -groupName $groupName
+            if ($null -eq $thisGroup) {
+                Throw "Get-ZoomGroupUsers: Group name ""$groupName"" could not be found."
+                return $null
+            }
+        }
+        
+        $thisGroup.GetMembers()
+        return $thisGroup.members
     }
-    $group.GetMembers()
-    return $group.members
 }
 
 <#
@@ -600,51 +656,107 @@ function Get-ZoomGroupUsers() {
     Adds Zoom users to a group
 
     .Description
-    Adds Zoom users into a group, based upon group name and user's email address
+    Adds one or more Zoom users to a group
 
     .Parameter Emails
-    The email addresses of the users to add as an array of strings. Will also accept a string containing a single address.
+    The email addresses of the users, either singular or as an array
 
-    .Parameter GroupName
-    The name of the group
+    .Parameter Group
+    The group to add users to, either as a ZoomGroup object or specified by name
 
     .Example
-    Add-ZoomUsersToGroup -groupName "Marketing Execs" -emails @("jerome@cactus.email","percy@cactus.email")
+    Add-ZoomUsersToGroup -groupName "Marketing Execs" -emails @("percy@cactus.email", "michelle@cactus.email")
 #>
 function Add-ZoomUsersToGroup() {
-    Param([Parameter(Mandatory=$true)]$emails, [Parameter(Mandatory=$true)][System.String]$groupName)
-    [ZoomGroup]$group = Get-ZoomGroup -groupName $groupName
-    if ($null -eq $group) {
-        Write-Error "Add-ZoomUsersToGroup: Group name ""$groupName"" could not be found."
-        return $null
+    [CmdletBinding(DefaultParameterSetName="email")]
+    Param(
+        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline=$true, Position=1)]
+        [System.String[]]$emails, 
+        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline=$true, Position=1)]
+        [ZoomUser[]]$users, 
+        [Parameter(ParameterSetName="user", Mandatory=$true, Position=0)]
+        [Parameter(ParameterSetName="email", Mandatory=$true, Position=0)]
+        $group
+    )
+
+    Begin {
+        if ($group -is [System.String]) {
+            [ZoomGroup]$thisGroup = Get-ZoomGroup -groupName $group
+            if ($null -eq $thisGroup) {
+                Throw "Add-ZoomUsersToGroup: Group name ""$group"" could not be found."
+                return $null
+            }
+        } elseif ($group -is [ZoomGroup]) {
+            $thisGroup = $group
+        } else {
+            Throw "Add-ZoomUsersToGroup: The -group parameter should either be the name of a group or a ZoomGroup object."
+            return $null
+        }
     }
-    $group.AddMembers($emails)
+
+    Process {
+        if ($PSCmdlet.ParameterSetName -eq "email") {
+            $thisGroup.AddMembers($emails)
+        } elseif ($PSCmdlet.ParameterSetName -eq "user") {
+            $thisGroup.AddMembers($users.email)
+        }
+    }
 }
+
 
 <#
     .Synopsis
     Removes Zoom user from a group
 
     .Description
-    Removes a Zoom user from a group, based upon group name and user's email address
+    Removes one or more Zoom users from a group
 
     .Parameter Emails
-    The email addresses of the user
+    The email addresses of the user, either singular or as an array
 
-    .Parameter GroupName
-    The name of the group
+    .Parameter Users
+    The ZoomUser user object, either singular or as an array
+
+    .Parameter Group
+    The group to remove users from, either as a ZoomGroup object or specified by name
 
     .Example
-    Remove-ZoomUserFromGroup -groupName "Marketing Execs" -emails "percy@cactus.email"
+    Remove-ZoomUsersFromGroup -group "Marketing Execs" -emails @("percy@cactus.email", "michelle@cactus.email")
 #>
-function Remove-ZoomUserFromGroup() {
-    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.String]$groupName)
-    [ZoomGroup]$group = Get-ZoomGroup -groupName $groupName
-    if ($null -eq $group) {
-        Write-Error "Remove-ZoomUserFromGroup: Group name ""$groupName"" could not be found."
-        return $null
+function Remove-ZoomUsersFromGroup() {
+    [CmdletBinding(DefaultParameterSetName="email")]
+    Param(
+        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline=$true, Position=1)]
+        [System.String[]]$emails, 
+        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline=$true, Position=1)]
+        [ZoomUser[]]$users, 
+        [Parameter(ParameterSetName="user", Mandatory=$true, Position=0)]
+        [Parameter(ParameterSetName="email", Mandatory=$true, Position=0)]
+        $group
+    )
+
+    Begin {
+        if ($group -is [System.String]) {
+            [ZoomGroup]$thisGroup = Get-ZoomGroup -groupName $group
+            if ($null -eq $thisGroup) {
+                Throw "Remove-ZoomUsersFromGroup: Group name ""$group"" could not be found."
+                return $null
+            }
+        } elseif ($group.GetType().Name -eq 'ZoomGroup') {
+            $thisGroup = $group
+        } else {
+            Throw "Remove-ZoomUsersFromGroup: The -group parameter should either be the name of a group or a ZoomGroup object."
+            return $null
+        }
     }
-    $group.RemoveMember($email)
+
+    Process {
+        if ($PSCmdlet.ParameterSetName -eq "email") {
+            $thisGroup.RemoveMember($emails)
+        } elseif ($PSCmdlet.ParameterSetName -eq "user") {
+            $thisGroup.RemoveMember($users.email)
+        }
+    }
 }
 
 <#
@@ -681,7 +793,7 @@ function Set-ZoomUserLicenseState() {
         }
         if ($email) {
             if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-                Write-Error "Set-ZoomUserLicenseState: User ""$email"" could not be found."
+                Throw "Set-ZoomUserLicenseState: User ""$email"" could not be found."
                 return $null
             }
             $thisUser = Get-ZoomUser -email $email
@@ -734,11 +846,11 @@ function Set-ZoomUserFeatureState() {
 
     process {
         if ( $webinar -eq $true -and ($webinarCapacity -ne 100 -and $webinarCapacity -ne 500 -and $webinarCapacity -ne 1000 -and $webinarCapacity -ne 3000 -and $webinarCapacity -ne 5000 -and $webinarCapacity -ne 10000)) {
-            Write-Error "Set-ZoomUserFeatureState: Invalid webinarCapacity value."
+            Throw "Set-ZoomUserFeatureState: Invalid webinarCapacity value."
             return $null
         }
         if ( $largeMeeting -eq $true -and ($largeMeetingCapacity -ne 500 -and $largeMeetingCapacity -ne 1000)) {
-            Write-Error "Set-ZoomUserFeatureState: Invalid largeMeetingCapacity value."
+            Throw "Set-ZoomUserFeatureState: Invalid largeMeetingCapacity value."
             return $null
         }
         if ($user) {
@@ -746,7 +858,7 @@ function Set-ZoomUserFeatureState() {
         }
         if ($email) {
             if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-                Write-Error "Set-ZoomUserFeatureState: User ""$email"" could not be found."
+                Throw "Set-ZoomUserFeatureState: User ""$email"" could not be found."
                 return $null
             }
             $thisUser = Get-ZoomUser -email $email
@@ -795,7 +907,7 @@ function Set-ZoomUserFeatureState() {
 function Set-ZoomUserDetails() {
     Param([Parameter(Mandatory=$true)][System.String]$email, [System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber)
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Set-ZoomUserDetails: User ""$email"" could not be found."
+        Throw "Set-ZoomUserDetails: User ""$email"" could not be found."
         return $null
     }
     [ZoomUser]$thisUser = [ZoomUser]::new($email)
@@ -822,7 +934,7 @@ function Set-ZoomUserPassword() {
     #' Performs no validation on password length and complexity
     Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][securestring]$password)
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Set-ZoomUserPassword: User ""$email"" could not be found."
+        Throw "Set-ZoomUserPassword: User ""$email"" could not be found."
         return $null
     }
     [ZoomUser]$thisUser = [ZoomUser]::new($email)
@@ -848,7 +960,7 @@ function Set-ZoomUserPassword() {
 function Set-ZoomUserStatus() {
     Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][boolean]$enabled)
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Set-ZoomUserPassword: User ""$email"" could not be found."
+        Throw "Set-ZoomUserPassword: User ""$email"" could not be found."
         return $null
     }
     [ZoomUser]$thisUser = [ZoomUser]::new($email)
@@ -909,7 +1021,7 @@ function Add-ZoomUser() {
         [System.String]$groupName
         )
     if ( (Get-ZoomUserExists -email $email) -eq $true ) {
-        Write-Error "Add-ZoomUser: User ""$email"" already exists."
+        Throw "Add-ZoomUser: User ""$email"" already exists."
         return $null
     }
     $thisUser = [ZoomUser]::Create($email, $firstName, $lastName, $license, $tiemzone, $jobTitle, $company, $location, $phoneNumber, $groupName)
@@ -932,7 +1044,7 @@ function Add-ZoomUser() {
 function Remove-ZoomUser() {
     Param([Parameter(Mandatory=$true)][System.String]$email)
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Remove-ZoomUser: User ""$email"" could not be found."
+        Throw "Remove-ZoomUser: User ""$email"" could not be found."
         return $null
     }
     [ZoomUser]$thisUser = [ZoomUser]::new($email)
@@ -958,11 +1070,11 @@ function Remove-ZoomUser() {
 function Add-ZoomUserAssistant() {
     Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.String]$assistant)
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Add-ZoomUserAssistants: User ""$email"" could not be found."
+        Throw "Add-ZoomUserAssistants: User ""$email"" could not be found."
         return $null
     }
     if ( (Get-ZoomUserExists -email $assistant) -eq $false ) {
-        Write-Error "Add-ZoomUserAssistants: Assistant ""$assistant"" could not be found."
+        Throw "Add-ZoomUserAssistants: Assistant ""$assistant"" could not be found."
         return $null
     }
     [ZoomUser]$thisUser = [ZoomUser]::new($email)
@@ -988,11 +1100,11 @@ function Add-ZoomUserAssistant() {
 function Remove-ZoomUserAssistant() {
     Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.String]$assistant)
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Remove-ZoomUserAssistants: User ""$email"" could not be found."
+        Throw "Remove-ZoomUserAssistants: User ""$email"" could not be found."
         return $null
     }
     if ( (Get-ZoomUserExists -email $assistant) -eq $false ) {
-        Write-Error "Remove-ZoomUserAssistants: Assistant ""$assistant"" could not be found."
+        Throw "Remove-ZoomUserAssistants: Assistant ""$assistant"" could not be found."
         return $null
     }
     [ZoomUser]$thisUser = [ZoomUser]::new($email)
@@ -1044,7 +1156,7 @@ function Get-ZoomMeetings() {
         [ZoomMeetingType]$meetingType
     )
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Get-ZoomMeetings: User ""$email"" could not be found."
+        Throw "Get-ZoomMeetings: User ""$email"" could not be found."
         return $null
     }
     if ($null -eq $meetingType) { $meetingType = [ZoomMeetingType]::Live }
@@ -1157,7 +1269,7 @@ function Get-ZoomRoleUsers() {
     Param([Parameter(Mandatory=$true)][System.String]$roleName)
     $role = Get-ZoomRole -roleName $roleName
     if ($null -eq $role) {
-        Write-Error "Get-ZoomRoleUsers: Role ""$role"" could not be found."
+        Throw "Get-ZoomRoleUsers: Role ""$role"" could not be found."
         return $null
     }
     $roleusers = @()
@@ -1196,18 +1308,18 @@ function Get-ZoomRoleUsers() {
 function Set-ZoomRoleUsers() {
     Param([Parameter(Mandatory=$true)]$emails, [Parameter(Mandatory=$true)][System.String]$roleName)
     if ($rolename.ToLower() -eq "owner" -or $roleName.ToLower() -eq "member") {
-        Write-Error "Set-ZoomRoleUsers: Users cannot be added to the Member or Owner roles."
+        Throw "Set-ZoomRoleUsers: Users cannot be added to the Member or Owner roles."
         return $null
     }
     $role = Get-ZoomRole -roleName $roleName
     if ($null -eq $role) {
-        Write-Error "Set-ZoomRoleUsers: Role ""$role"" could not be found."
+        Throw "Set-ZoomRoleUsers: Role ""$role"" could not be found."
         return $null
     }
     $members = @()
     $emails | ForEach-Object {
         if ( (Get-ZoomUserExists -email $_) -eq $false ) {
-            Write-Error "Set-ZoomRoleUsers: User ""$_"" could not be found."
+            Throw "Set-ZoomRoleUsers: User ""$_"" could not be found."
             return $null
         }
         $member = New-Object -TypeName psobject
@@ -1239,11 +1351,11 @@ function Remove-ZoomRoleUser() {
     Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.String]$roleName)
     $role = Get-ZoomRole -roleName $roleName
     if ($null -eq $role) {
-        Write-Error "Remove-ZoomRoleUser: Role ""$role"" could not be found."
+        Throw "Remove-ZoomRoleUser: Role ""$role"" could not be found."
         return $null
     }
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Remove-ZoomRoleUser: User ""$email"" could not be found."
+        Throw "Remove-ZoomRoleUser: User ""$email"" could not be found."
         return $null
     }
     Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles/$($role.id)/members/$email" -Headers (Get-ZoomAuthHeader) -Method Delete
@@ -1295,12 +1407,12 @@ function Get-ZoomMeetingReport() {
     [Parameter(Mandatory=$true)][System.DateTime]$to)
 
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Write-Error "Get-ZoomMeetingReport: User ""$email"" could not be found."
+        Throw "Get-ZoomMeetingReport: User ""$email"" could not be found."
         return $null
     }
     [System.Timespan]$timeDifference = $to - $from
     if ($timeDifference.TotalDays -gt 31) {
-        Write-Error "Get-ZoomMeetingReport: The date range defined by the -from and -to parameters cannot be more than one month apart."
+        Throw "Get-ZoomMeetingReport: The date range defined by the -from and -to parameters cannot be more than one month apart."
         return $null
     }
     $zoommeetings = [ZoomMeetingsReport]::new($email, $from, $to)
@@ -1428,7 +1540,6 @@ function Get-ZoomAuthHeader() {
 #endregion Utility functions
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
 Write-Debug "ZoomLibrary module loaded"
 
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1442,6 +1553,7 @@ Export-ModuleMember -Function Remove-ZoomGroup -Alias rzg
 Export-ModuleMember -Function Get-ZoomUsers -Alias gzusers
 Export-ModuleMember -Function Get-ZoomGroupUsers -Alias gzgu
 Export-ModuleMember -Function Add-ZoomUsersToGroup -Alias azug
+Export-ModuleMember -Function Remove-ZoomUsersFromGroup -Alias rzug
 Export-ModuleMember -Function Set-ZoomUserLicenseState -Alias szul
 Export-ModuleMember -Function Set-ZoomUserDetails -Alias szud
 Export-ModuleMember -Function Set-ZoomUserPassword -Alias szup
