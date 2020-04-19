@@ -936,7 +936,8 @@ function Set-ZoomUserDetails() {
         [System.String]$jobTitle, 
         [System.String]$company, 
         [System.String]$location, 
-        [System.String]$phoneNumber)
+        [System.String]$phoneNumber
+    )
     if ( (Get-ZoomUserExists -email $email) -eq $false ) {
         Throw "Set-ZoomUserDetails: User ""$email"" could not be found."
         return $null
@@ -974,7 +975,8 @@ function Set-ZoomUserPassword() {
         [ZoomUser]$user,
         [Parameter(ParameterSetName="user", Position=0, Mandatory=$true)]
         [Parameter(ParameterSetName="email", Position=0, Mandatory=$true)]
-        [securestring]$password)
+        [securestring]$password
+    )
 
     Process {
         if ($PSCmdlet.ParameterSetName -eq 'user') {
@@ -1009,14 +1011,15 @@ function Set-ZoomUserPassword() {
 #>
 function Set-ZoomUserStatus() {
     Param(
-    [CmdletBinding(DefaultParameterSetName="email")]
-    [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
-    [System.String]$email,
-    [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
-    [ZoomUser]$user,
-    [Parameter(ParameterSetName="user", Position=0, Mandatory=$true)]
-    [Parameter(ParameterSetName="email", Position=0, Mandatory=$true)]
-    [boolean]$enabled)
+        [CmdletBinding(DefaultParameterSetName="email")]
+        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
+        [System.String]$email,
+        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
+        [ZoomUser]$user,
+        [Parameter(ParameterSetName="user", Position=0, Mandatory=$true)]
+        [Parameter(ParameterSetName="email", Position=0, Mandatory=$true)]
+        [boolean]$enabled
+    )
 
     Process {
         if ($PSCmdlet.ParameterSetName -eq 'user') {
@@ -1085,7 +1088,7 @@ function Add-ZoomUser() {
         [System.String]$location,
         [System.String]$phoneNumber,
         [System.String]$groupName
-        )
+    )
     if ( (Get-ZoomUserExists -email $email) -eq $true ) {
         Throw "Add-ZoomUser: User ""$email"" already exists."
         return $null
@@ -1112,11 +1115,12 @@ function Add-ZoomUser() {
 #>
 function Remove-ZoomUser() {
     Param(
-    [CmdletBinding(DefaultParameterSetName="email")]
-    [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
-    [System.String]$email,
-    [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
-    [ZoomUser]$user
+        [CmdletBinding(DefaultParameterSetName="email")]
+        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
+        [System.String]$email,
+        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
+        [ZoomUser]$user
+    )
 
     Process {
         if ($PSCmdlet.ParameterSetName -eq 'user') {
@@ -1143,24 +1147,51 @@ function Remove-ZoomUser() {
     .Parameter Email
     The email address of the user to add the assistant to.
 
+    .Parameter User
+    The ZoomUser object of the user to add the assistant to.
+
     .Parameter Assistant
-    The email address of the assistant.
+    The assistant to add. Can either be passed as an email address or a ZoomUser object.
 
     .Example
     Add-ZoomUserAssistant -email "jerome@cactus.email" -assistant "francisco@cactus.email"
 #>
 function Add-ZoomUserAssistant() {
-    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.String]$assistant)
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Throw "Add-ZoomUserAssistants: User ""$email"" could not be found."
-        return $null
+    Param(
+        [CmdletBinding(DefaultParameterSetName="email")]
+        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
+        [System.String]$email,
+        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
+        [ZoomUser]$user,
+        [Parameter(ParameterSetName="email", Mandatory=$true, Position=0)]
+        [Parameter(ParameterSetName="user", Mandatory=$true, Position=0)]
+        $assistant
+    )
+    Begin {
+        if ($assistant -is [System.String]) {
+            if ( (Get-ZoomUserExists -email $assistant) -eq $false ) {
+                Throw "Add-ZoomUserAssistant: Assistant ""$assistant"" could not be found."
+                return $null
+            }
+            $thisAssistant = $assistant
+        } elseIf ( $assistant -is [ZoomUser] ) {
+            $thisAssistant = $assistant.Email
+        }
     }
-    if ( (Get-ZoomUserExists -email $assistant) -eq $false ) {
-        Throw "Add-ZoomUserAssistants: Assistant ""$assistant"" could not be found."
-        return $null
+
+    Process {
+        if ($PSCmdlet.ParameterSetName -eq 'user') {
+            $thisUser = $user
+        }
+        if ($PSCmdlet.ParameterSetName -eq 'email') {
+            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+                Throw "Add-ZoomUserAssistant: User ""$email"" could not be found."
+                return $null
+            }
+            $thisUser = Get-ZoomUser -email $email
+        }
+        $thisUser.AddAssistant($thisAssistant)
     }
-    [ZoomUser]$thisUser = [ZoomUser]::new($email)
-    $thisUser.AddAssistant($assistant)
 }
 
 <#
@@ -1168,29 +1199,56 @@ function Add-ZoomUserAssistant() {
     Removes an assistant / delegate from a user
 
     .Description
-    Removes an assistant / delegate from a user, based upon email addresses. Warning: although API returns a success code, this API call does not appear to function.
+    Removes an assistant / delegate from a user, based upon email addresses.
 
     .Parameter Email
     The email address of the user to remove the assistant from.
 
+    .Parameter User
+    The ZoomUser object of the user to remove the assistant from.
+
     .Parameter Assistant
-    The email address of the assistant.
+    The assistant to remove. Can either be passed as an email address or a ZoomUser object.
 
     .Example
     Remove-ZoomUserAssistant -email "jerome@cactus.email" -assistant "francisco@cactus.email"
 #>
 function Remove-ZoomUserAssistant() {
-    Param([Parameter(Mandatory=$true)][System.String]$email, [Parameter(Mandatory=$true)][System.String]$assistant)
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Throw "Remove-ZoomUserAssistants: User ""$email"" could not be found."
-        return $null
+    Param(
+        [CmdletBinding(DefaultParameterSetName="email")]
+        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
+        [System.String]$email,
+        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
+        [ZoomUser]$user,
+        [Parameter(ParameterSetName="email", Mandatory=$true, Position=0)]
+        [Parameter(ParameterSetName="user", Mandatory=$true, Position=0)]
+        $assistant
+    )
+    Begin {
+        if ($assistant -is [System.String]) {
+            if ( (Get-ZoomUserExists -email $assistant) -eq $false ) {
+                Throw "Add-ZoomUserAssistant: Assistant ""$assistant"" could not be found."
+                return $null
+            }
+            $thisAssistant = get-zoomuser -email $assistant
+        } elseIf ( $assistant -is [ZoomUser] ) {
+            $thisAssistant = $assistant
+        }
     }
-    if ( (Get-ZoomUserExists -email $assistant) -eq $false ) {
-        Throw "Remove-ZoomUserAssistants: Assistant ""$assistant"" could not be found."
-        return $null
+
+    Process {
+        if ($PSCmdlet.ParameterSetName -eq 'user') {
+            $thisUser = $user
+        }
+        if ($PSCmdlet.ParameterSetName -eq 'email') {
+            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+                Throw "Remove-ZoomUserAssistant: User ""$email"" could not be found."
+                return $null
+            }
+            $thisUser = Get-ZoomUser -email $email
+        }
+        $thisUser.RemoveAssistant($thisAssistant.id)
     }
-    [ZoomUser]$thisUser = [ZoomUser]::new($email)
-    $thisUser.RemoveAssistant($assistant)
 }
 
 <#
@@ -1211,7 +1269,12 @@ function Remove-ZoomUserAssistant() {
     Set-ZoomAuthToken -apiKey abc123 -apiSecret -xyz789
 #>
 function Set-ZoomAuthToken() {
-    Param([Parameter(Mandatory=$true)][System.String]$apiKey, [Parameter(Mandatory=$true)][System.String]$apiSecret)
+    Param(
+        [Parameter(Mandatory=$true, Position=0)]
+        [System.String]$apiKey,
+        [Parameter(Mandatory=$true, Position=0)]
+        [System.String]$apiSecret
+    )
     $global:api_key = $apiKey
     $global:api_secret = $apiSecret
 }
