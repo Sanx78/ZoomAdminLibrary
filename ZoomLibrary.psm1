@@ -519,6 +519,9 @@ Class ZoomGroup {
     [System.Int32]$totalMembers
     [ZoomUser[]]$members
 
+    ZoomGroup() {
+    }
+
     ZoomGroup([System.String]$id) {
         $this.id = $id
         $group = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$id" -Headers (Get-ZoomAuthHeader)
@@ -565,6 +568,20 @@ Class ZoomGroup {
 
     Delete() {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups/$($this.id)" -Headers (Get-ZoomAuthHeader) -Method DELETE
+    }
+
+    static [ZoomGroup[]] GetAllGroups() {
+        $zoomgroups = @()
+        $groups = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers (Get-ZoomAuthHeader)
+        Write-Debug "[ZoomGroup]::GetAllGroups - Retrieved $($groups.total_records) groups."
+        $groups.groups | ForEach-Object {
+            $thisGroup = [ZoomGroup]::new()
+            $thisGroup.id = $_.id
+            $thisGroup.name = $_.name
+            $thisGroup.totalMembers = $_.total_members
+            $zoomgroups += $thisGroup
+        }
+        return $zoomgroups
     }
 
     static [ZoomGroup] GetByName([System.String]$name) {
@@ -632,10 +649,10 @@ function Get-ZoomUserExists() {
 
 <#
     .Synopsis
-    Returns a Zoom group object
+    Returns details of a single Zoom group or all groups on the account
 
     .Description
-    Returns a Zoom group object based upon group name
+    Returns a [ZoomGroup] object if the -groupName parameter is specified. If the -groupName parameter is omitted, returns an array of [ZoomGroup] objects corresponding to all of the Zoom groups on the account.
 
     .Parameter GroupName
     The name of the group
@@ -646,10 +663,14 @@ function Get-ZoomUserExists() {
 function Get-ZoomGroup() {
     [CmdletBinding()]
     Param(
-        [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true)]
+        [Parameter(Position=0, ValueFromPipeline=$true)]
         [System.String]$groupName
     )
-    return [ZoomGroup]::GetByName($groupName)
+    if ([System.String]::IsNullOrEmpty($groupName)) {
+        return [ZoomGroup]::GetAllGroups()
+    } else {
+        return [ZoomGroup]::GetByName($groupName)
+    } 
 }
 
 <#
@@ -1515,7 +1536,7 @@ function Stop-ZoomMeeting() {
 #>
 function Get-ZoomRoles() {
     $roles = Invoke-RestMethod -Uri "https://api.zoom.us/v2/roles" -Headers (Get-ZoomAuthHeader) -Method Get
-    Write-Debug "Get-ZoomRole: Retrieved $($roles.total_records) groups."
+    Write-Debug "Get-ZoomRole: Retrieved $($roles.total_records) roles."
     return $roles.roles
 }
 
