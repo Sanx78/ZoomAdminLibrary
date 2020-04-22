@@ -12,7 +12,10 @@
     The email address of the user
 
     .Example
-    Get-ZoomUser -email foo@cactus.email
+    Get-ZoomUser -email jerome@cactus.email
+
+    .Outputs
+    A [ZoomUser] object for the specified user
 #>
 function Get-ZoomUser() {
     [CmdletBinding()]
@@ -34,7 +37,10 @@ function Get-ZoomUser() {
     The email address of the user
 
     .Example
-    Get-ZoomUserExists -email foo@cactus.email
+    Get-ZoomUserExists -email jerome@cactus.email
+
+    .Outputs
+    A boolean value indicating existence
 #>
 function Get-ZoomUserExists() {
     [CmdletBinding()]
@@ -57,6 +63,9 @@ function Get-ZoomUserExists() {
 
     .Example
     Get-ZoomGroup -groupName "Marketing Execs"
+
+    .Outputs
+    A [ZoomGroup] object
 #>
 function Get-ZoomGroup() {
     [CmdletBinding()]
@@ -173,6 +182,9 @@ function Get-ZoomUsers() {
 
     .Example
     Get-ZoomGroupUsers -groupName "Marketing Execs"
+
+    .Outputs
+    An array of [ZoomUser] objects.
 #>
 function Get-ZoomGroupUsers() {
     [CmdletBinding(DefaultParameterSetName="name")]
@@ -606,6 +618,9 @@ function Set-ZoomUserStatus() {
 
     .Example
     Add-ZoomUser -email "francisco@cactus.email" -firstName Francisco -lastName Hunter -license Basic timezone "Europe/London" -jobTitle "Graphic Artist" -company "Cactus Industries (Europe)" -Location Basildon -phoneNumber "+44 1268 533333" -groupName "Designers"
+
+    .Outputs
+    A [ZoomUser] object.
 #>
 function Add-ZoomUser() {
     Param(

@@ -463,11 +463,12 @@ Class ZoomUser {
         $body = New-Object -TypeName psobject
         $body | Add-Member -Name assistants -Value @(@{"email" = $assistant}) -MemberType NoteProperty
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants" -Headers (Get-ZoomAuthHeader) -Body ($body | ConvertTo-Json) -Method POST
+        $this.GetAssistants()
     }
 
     RemoveAssistant([System.String]$assistant) {
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/assistants/$assistant" -Headers (Get-ZoomAuthHeader) -Method DELETE
-        Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/schedulers/$assistant" -Headers (Get-ZoomAuthHeader) -Method DELETE
+        $this.GetAssistants()
     }
 
     static [ZoomUser] Create([System.String]$email, [System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber, [System.String]$groupName) {
