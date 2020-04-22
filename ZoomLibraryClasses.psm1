@@ -305,6 +305,7 @@ Class ZoomUser {
     [System.String]$location
     [ZoomUser[]]$assistants
     [ZoomUser[]]$schedulers
+    [System.Boolean]$isStub
 
     ZoomUser([System.String]$email) {
         $this.email = $email
@@ -328,6 +329,7 @@ Class ZoomUser {
         $this.status = $user.status
         $this.jobTitle = $user.job_title
         $this.location = $user.location
+        $this.isStub = $false
     }
 
     Load() {
@@ -367,6 +369,8 @@ Class ZoomUser {
             [ZoomGroup]$thisGroup = [ZoomGroup]::new($_)
             $this.groups += $thisGroup
         }
+
+        $this.isStub = $false
     }
 
     Update([System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber) {
@@ -496,6 +500,7 @@ Class ZoomUser {
     static [ZoomUser] GetUserStub([System.String]$id, [System.String]$email) {
         [ZoomUser]$thisUser = [ZoomUser]::new($email)
         $thisUser.id = $id
+        $thisUser.isStub = $true
         return $thisUser
     }
 
