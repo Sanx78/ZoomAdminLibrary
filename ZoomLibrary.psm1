@@ -304,9 +304,30 @@ Class ZoomUser {
     [System.String]$jobTitle
     [System.String]$location
     [ZoomUser[]]$assistants
+    [ZoomUser[]]$schedulers
 
     ZoomUser([System.String]$email) {
         $this.email = $email
+    }
+
+    ZoomUser([PSCustomObject]$user) {
+        $this.id = $user.id
+        $this.firstName = $user.first_name
+        $this.lastName = $user.last_name
+        $this.email = $user.email
+        $this.licenseType = $user.type
+        $this.PMI = $user.pmi
+        $this.timezone = $user.timezone
+        $this.department = $user.dept
+        $this.created = $user.created_at
+        if ($null -ne $user.last_login_time) { $this.lastLoginTime = $user.last_login_time } else { $this.lastLoginTime = [System.Datetime]::MinValue }
+        $this.lastClientVersion = $user.last_client_version
+        $this.groupIDs = $user.group_ids
+        $this.language = $user.language
+        $this.phoneNumber = $user.phone_number
+        $this.status = $user.status
+        $this.jobTitle = $user.job_title
+        $this.location = $user.location
     }
 
     Load() {
@@ -325,7 +346,7 @@ Class ZoomUser {
         $this.vanityURL = $user.vanity_url
         $this.personalMeetingURL = $user.personal_meeting_url
         $this.timezone = $user.timezone
-        $this.department = $user.department
+        $this.department = $user.dept
         $this.created = $user.created_at
         if ($null -ne $user.last_login_time) { $this.lastLoginTime = $user.last_login_time } else { $this.lastLoginTime = [System.Datetime]::MinValue }
         $this.lastClientVersion = $user.last_client_version
@@ -346,8 +367,6 @@ Class ZoomUser {
             [ZoomGroup]$thisGroup = [ZoomGroup]::new($_)
             $this.groups += $thisGroup
         }
-
-        $this.GetAssistants()
     }
 
     Update([System.String]$firstName, [System.String]$lastName, [ZoomLicenseType]$license, [System.String]$timezone, [System.String]$jobTitle, [System.String]$company, [System.String]$location, [System.String]$phoneNumber) {
@@ -431,6 +450,15 @@ Class ZoomUser {
         }
     }
 
+    GetSchedulers() {
+        $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)/schedulers" -Headers (Get-ZoomAuthHeader) -Method GET
+        if ($null -ne $this.schedulers) { [ZoomUser[]]$this.schedulers = @() }
+        $result.schedulers | ForEach-Object {
+            $thisScheduler = [ZoomUser]::GetUserStub($_.id, $_.email)
+            $this.schedulers += $thisScheduler
+        }
+    }
+
     AddAssistant([System.String]$assistant) {
         $body = New-Object -TypeName psobject
         $body | Add-Member -Name assistants -Value @(@{"email" = $assistant}) -MemberType NoteProperty
@@ -495,7 +523,7 @@ Class ZoomUser {
         $page1 = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100" -Headers (Get-ZoomAuthHeader)
         Write-Debug "[ZoomUser]::GetUsers - $($page1.total_records) users in $($page1.page_count) pages. Adding page 1 containing $($page1.users.count) records."
         $page1.users | ForEach-Object {
-            $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
+            $thisUser = [ZoomUser]::new($_)
             $zoomusers += $thisUser
         }
         if ($page1.page_count -gt 1) {
@@ -503,7 +531,7 @@ Class ZoomUser {
                 $page = Invoke-RestMethod -Uri "https://api.zoom.us/v2/users?status=active&page_size=100&page_number=$count" -Headers (Get-ZoomAuthHeader)
                 Write-Debug "[ZoomUser]::GetUsers: Adding page $count containing $($page1.users.count) records."
                 $page.users | ForEach-Object {
-                    $thisUser = $thisUser = [ZoomUser]::GetUserStub($_.id, $_.email, $_.first_name, $_.last_name, $_.type)
+                    $thisUser = [ZoomUser]::new($_)
                     $zoomusers  += $thisUser
                 }
                 Start-Sleep -Milliseconds 100 #` To keep under Zoom's API rate limit of 10 per second.
@@ -584,7 +612,7 @@ Class ZoomGroup {
         return $zoomgroups
     }
 
-    static [ZoomGroup] GetByName([System.String]$name) {
+    static [ZoomGroup] GetByName([System.String]$groupName) {
         $groups = Invoke-RestMethod -Uri "https://api.zoom.us/v2/groups" -Headers (Get-ZoomAuthHeader)
         Write-Debug "[ZoomGroup]::GetByName - Retrieved $($groups.total_records) groups."
         $thisGroup = $groups.groups | Where-object { $_.name -eq $groupName }
@@ -609,6 +637,7 @@ Class ZoomGroup {
 
     .Description
     Returns a Zoom user object based on email address
+    Note: to reduce the number of API calls required, a zoom user's assistants and schedulers are not populated automatically. To populate, call [ZoomUser].GetAssistants or [ZoomUser].GetSchedulers as required.
 
     .Parameter Email
     The email address of the user
@@ -1207,7 +1236,7 @@ function Set-ZoomUserStatus() {
     The name of the group
 
     .Example
-    Add-ZoomUser -email "francisco@cactus.email" -firstName Francisco -lastName Hunter -license Basic timezone "Europe/London" -jobTitle "Gra[hic Artist" -company "Cactus Industries (Europe)" -Location Basildon -phoneNumber "+44 1268 533333" -groupName "Designers"
+    Add-ZoomUser -email "francisco@cactus.email" -firstName Francisco -lastName Hunter -license Basic timezone "Europe/London" -jobTitle "Graphic Artist" -company "Cactus Industries (Europe)" -Location Basildon -phoneNumber "+44 1268 533333" -groupName "Designers"
 #>
 function Add-ZoomUser() {
     Param(
@@ -1382,34 +1411,6 @@ function Remove-ZoomUserAssistant() {
         }
         $thisUser.RemoveAssistant($thisAssistant.id)
     }
-}
-
-<#
-    .Synopsis
-    Sets the Zoom API Key and Secret
-
-    .Description
-    Sets the Zoom API Key and Secret required for the generation of JSON Web Tokens for authentication. Must be called before any other function.
-    For more information, see: https://marketplace.zoom.us/docs/guides/auth/jwt 
-
-    .Parameter apiKey
-    Your application's API key
-
-    .Parameter apiKey
-    Your application's API secret
-
-    .Example
-    Set-ZoomAuthToken -apiKey abc123 -apiSecret -xyz789
-#>
-function Set-ZoomAuthToken() {
-    Param(
-        [Parameter(Mandatory=$true, Position=0)]
-        [System.String]$apiKey,
-        [Parameter(Mandatory=$true, Position=0)]
-        [System.String]$apiSecret
-    )
-    $global:api_key = $apiKey
-    $global:api_secret = $apiSecret
 }
 
 <#
@@ -1843,6 +1844,34 @@ function Get-ZoomAuthHeader() {
     $header.Add('Authorization',"Bearer $token")
 
     return $header
+}
+
+<#
+    .Synopsis
+    Sets the Zoom API Key and Secret
+
+    .Description
+    Sets the Zoom API Key and Secret required for the generation of JSON Web Tokens for authentication. Must be called before any other function.
+    For more information, see: https://marketplace.zoom.us/docs/guides/auth/jwt 
+
+    .Parameter apiKey
+    Your application's API key
+
+    .Parameter apiKey
+    Your application's API secret
+
+    .Example
+    Set-ZoomAuthToken -apiKey abc123 -apiSecret -xyz789
+#>
+function Set-ZoomAuthToken() {
+    Param(
+        [Parameter(Mandatory=$true, Position=0)]
+        [System.String]$apiKey,
+        [Parameter(Mandatory=$true, Position=0)]
+        [System.String]$apiSecret
+    )
+    $global:api_key = $apiKey
+    $global:api_secret = $apiSecret
 }
 
 #endregion Utility functions
