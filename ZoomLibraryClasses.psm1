@@ -398,7 +398,7 @@ Class ZoomUser {
         $params.Add("location", $this.location)
         $params.Add("phone_number", $this.phoneNumber)
         $params.Add("department", $this.department)
-        $params.Add("vanity_name", $this.vanityURL)
+        if ([System.String]::IsNullOrWhiteSpace($this.vanityURL) -eq $false ) { $params.Add("vanity_name", $this.vanityURL) }
         $params.Add("use_pmi", $this.usePMI)
         Invoke-RestMethod -Uri "https://api.zoom.us/v2/users/$($this.email)" -Headers (Get-ZoomAuthHeader) -Body ($params | ConvertTo-Json) -Method PATCH
     }
@@ -636,3 +636,5 @@ Class ZoomGroup {
     }
 }
 #endregion UserClasses
+
+Write-Debug "ZoomLibraryClasses loaded."

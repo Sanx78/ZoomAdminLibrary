@@ -1,4 +1,5 @@
-﻿Using Module .\ZoomLibraryClasses.psm1
+﻿
+Using Module .\ZoomLibraryClasses.psm1
 
 <#
     .Synopsis
@@ -274,7 +275,7 @@ function Add-ZoomUsersToGroup() {
     The email address of the user to remove
 
     .Parameter User
-    The ZoomUser user object
+    The ZoomUser user object to remove
 
     .Parameter Group
     The group to remove users from, either as a ZoomGroup object or specified by name
@@ -333,6 +334,9 @@ function Remove-ZoomUsersFromGroup() {
     .Parameter Email
     The email address of the user to modify.
 
+    .Parameter User
+    The ZoomUser object to modify.
+
     .Parameter License
     The type of license to apply. Valid values are: [ZoomLicenseType]::Basic, [ZoomLicenseType]::Licensed and [ZoomLicenseType]::OnPrem
 
@@ -372,6 +376,9 @@ function Set-ZoomUserLicenseState() {
 
     .Description
     Assigns or removes webinar and large meeting add-ons
+
+    .Parameter User
+    The ZoomUser object to modify.
 
     .Parameter Email
     The email address of the user to modify.
@@ -442,6 +449,9 @@ function Set-ZoomUserFeatureState() {
     .Parameter Email
     The email address of the user to modify.
 
+    .Parameter User
+    The ZoomUser object to modify.
+
     .Parameter FirstName
     The Zoom user's first name
     
@@ -452,7 +462,7 @@ function Set-ZoomUserFeatureState() {
     The type of license to apply. Valid values are: [ZoomLicenseType]::Basic, [ZoomLicenseType]::Licensed and [ZoomLicenseType]::OnPrem
 
     .Parameter TimeZone
-    The time zone the Zoom user is in. Time zone to be specific in TZD format. For more information, see: https://marketplace.zoom.us/docs/api-reference/other-references/abbreviation-lists#timezones
+    The time zone the Zoom user is in. Time zone to be in specific TZD format. For more information, see: https://marketplace.zoom.us/docs/api-reference/other-references/abbreviation-lists#timezones
 
     .Parameter JobTitle
     The Zoom user's job title
@@ -470,23 +480,43 @@ function Set-ZoomUserFeatureState() {
     Set-ZoomUserDetails -email jerome@cactus.email -firstName Jerome -lastName Ramirez -license Licensed -timezone "Europe/London" -jobTitle "Head of Channel Marketing" -company "Cactus Industries (Europe)" -Location Basildon -phoneNumber "+44 1268 533333"
 #>
 function Set-ZoomUserDetails() {
+    [CmdletBinding(DefaultParameterSetName = 'email')]
     Param(
-        [Parameter(Mandatory=$true)][System.String]$email, 
+        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
+        [System.String]$email,
+        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
+        [ZoomUser]$user,
+        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$firstName, 
+        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$lastName, 
+        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [ZoomLicenseType]$license, 
+        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$timezone, 
+        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$jobTitle, 
+        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$company, 
+        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$location, 
+        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$phoneNumber
     )
-    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-        Throw "Set-ZoomUserDetails: User ""$email"" could not be found."
-        return $null
+
+    process {
+        if ($PSCmdlet.ParameterSetName -eq 'user') {
+            $thisUser = $user
+        }
+        if ($PSCmdlet.ParameterSetName -eq 'email') {
+            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+                Throw "Set-ZoomUserDetails: User ""$email"" could not be found."
+                return $null
+            }
+            $thisUser = Get-ZoomUser -email $email
+        }
+        $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
     }
-    [ZoomUser]$thisUser = [ZoomUser]::new($email)
-    $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
 }
 
 <#
@@ -639,7 +669,7 @@ function Add-ZoomUser() {
         Throw "Add-ZoomUser: User ""$email"" already exists."
         return $null
     }
-    $thisUser = [ZoomUser]::Create($email, $firstName, $lastName, $license, $tiemzone, $jobTitle, $company, $location, $phoneNumber, $groupName)
+    $thisUser = [ZoomUser]::Create($email, $firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber, $groupName)
     return $thisUser
 }
 
