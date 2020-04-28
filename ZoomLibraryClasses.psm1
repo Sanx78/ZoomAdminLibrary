@@ -272,6 +272,41 @@ Class ZoomMeetingsReport {
         }
     }
 }
+
+Class ZoomOperationsLogEntry {
+    [System.DateTime]$time
+    [System.String]$operator
+    [System.String]$category
+    [System.String]$action
+    [System.String]$detail
+
+    ZoomOperationsLogEntry($logEntry) {
+        $this.time = $logEntry.time
+        $this.operator = $logEntry.operator
+        $this.category = $logEntry.category_type
+        $this.action = $logEntry.action
+        $this.detail = $logEntry.operation_detail
+    }
+}
+
+Class ZoomOperationsReport {
+    [ZoomOperationsLogEntry[]]$entries
+
+    ZoomOperationsReport([System.DateTime]$from, [System.DateTime]$to) {
+        $fromString = $from.ToString("yyyy-MM-dd")
+        $toString = $to.ToString("yyyy-MM-dd")
+
+        $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/operationlogs?page_size=100&from=$fromString&to=$toString" -Headers (Get-ZoomAuthHeader)
+        do {
+            $result.operation_logs | ForEach-Object {
+                $this.entries += [ZoomOperationsLogEntry]::new($_)
+            }
+            Write-Debug "[ZoomOperationsReport]::new - Next page token: $($result.next_page_token)"
+            $result = Invoke-RestMethod -Uri "https://api.zoom.us/v2/report/operationlogs?page_size=100&next_page_token=$($result.next_page_token)&from=$fromString&to=$toString" -Headers (Get-ZoomAuthHeader)
+        } while ([System.String]::IsNullOrWhiteSpace($result.next_page_token) -eq $false)
+    }
+}
+
 #endregion ReportClasses
 
 #region UserClasses

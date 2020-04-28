@@ -80,7 +80,7 @@ FunctionsToExport = 'Get-ZoomUser', 'Get-ZoomUserExists', 'Get-ZoomGroup', 'Add-
                'Get-ZoomRole', 'Get-ZoomRoleUsers', 'Set-ZoomRoleUsers', 
                'Remove-ZoomRoleUser', 'Get-ZoomUsageReport', 'Get-ZoomMeetingReport', 
                'Get-ZoomMeetingParticipantReport', 
-               'Get-ZoomWebinarParticipantReport', 'Get-JSONWebToken', 
+               'Get-ZoomWebinarParticipantReport', 'Get-ZoomOperationsReport', 'Get-JSONWebToken', 
                'Get-ZoomAuthHeader'
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
@@ -107,7 +107,7 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = @('Zoom', 'Zoom API', 'Video Conferencing')
+        Tags = 'Zoom','Zoom API','Video Conferencing'
 
         # A URL to the license for this module.
         LicenseUri = 'https://github.com/Sanx78/ZoomAdminLibrary/blob/master/LICENSE'

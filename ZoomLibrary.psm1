@@ -1187,6 +1187,37 @@ function Get-ZoomWebinarParticipantReport() {
     $report = [ZoomWebinarParticipantReport]::new($webinarID, $resolveNames.IsPresent)
     return $report
 }
+
+<#
+    .Synopsis
+    Generates the Zoom operations log report
+
+    .Description
+    Generates the Zoom meetings report for a specific user in a defined timespan. Note: the timespan defined by the -from and -to parameters cannot be more than one month in duration.
+
+    .Parameter From
+    The start date of the report, expressed as a datetime object.
+
+    .Parameter From
+    The end date of the report, expressed as a datetime object.
+
+    .Example
+    Get-ZoomOperationsReport -from "2020-01-01" -to "2020-02-01"
+#>
+function Get-ZoomOperationsReport() {
+    Param(
+        [Parameter(Mandatory=$true)][System.DateTime]$from,
+        [Parameter(Mandatory=$true)][System.DateTime]$to
+    )
+
+    [System.Timespan]$timeDifference = $to - $from
+    if ($timeDifference.TotalDays -gt 31) {
+        Throw "Get-ZoomOperationsReport: The date range defined by the -from and -to parameters cannot be more than one month apart."
+        return $null
+    }
+    $zoomopslog = [ZoomOperationsReport]::new($from, $to)
+    return $zoomopslog
+}
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 #region Utility functions
@@ -1327,3 +1358,4 @@ Export-ModuleMember -Function Get-ZoomUsageReport -Alias gzur
 Export-ModuleMember -Function Get-ZoomMeetingReport -Alias gzmr
 Export-ModuleMember -Function Get-ZoomMeetingParticipantReport -Alias gzmpr
 Export-ModuleMember -Function Get-ZoomWebinarParticipantReport -Alias gzwpr
+Export-ModuleMember -Function Get-ZoomOperationsReport -Alias gzor
