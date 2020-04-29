@@ -1,5 +1,7 @@
-﻿
-Using Module .\ZoomLibraryClasses.psm1
+﻿$ScriptDir = Split-Path -parent $MyInvocation.MyCommand.Path
+. "$ScriptDir\Classes\ZoomLibraryUserClasses.ps1"
+. "$ScriptDir\Classes\ZoomLibraryMeetingClasses.ps1"
+. "$ScriptDir\Classes\ZoomLibraryReportClasses.ps1"
 
 <#
     .Synopsis
@@ -275,7 +277,7 @@ function Add-ZoomUsersToGroup() {
     The email address of the user to remove
 
     .Parameter User
-    The ZoomUser user object to remove
+    The ZoomUser user object
 
     .Parameter Group
     The group to remove users from, either as a ZoomGroup object or specified by name
@@ -334,9 +336,6 @@ function Remove-ZoomUsersFromGroup() {
     .Parameter Email
     The email address of the user to modify.
 
-    .Parameter User
-    The ZoomUser object to modify.
-
     .Parameter License
     The type of license to apply. Valid values are: [ZoomLicenseType]::Basic, [ZoomLicenseType]::Licensed and [ZoomLicenseType]::OnPrem
 
@@ -376,9 +375,6 @@ function Set-ZoomUserLicenseState() {
 
     .Description
     Assigns or removes webinar and large meeting add-ons
-
-    .Parameter User
-    The ZoomUser object to modify.
 
     .Parameter Email
     The email address of the user to modify.
@@ -449,9 +445,6 @@ function Set-ZoomUserFeatureState() {
     .Parameter Email
     The email address of the user to modify.
 
-    .Parameter User
-    The ZoomUser object to modify.
-
     .Parameter FirstName
     The Zoom user's first name
     
@@ -462,7 +455,7 @@ function Set-ZoomUserFeatureState() {
     The type of license to apply. Valid values are: [ZoomLicenseType]::Basic, [ZoomLicenseType]::Licensed and [ZoomLicenseType]::OnPrem
 
     .Parameter TimeZone
-    The time zone the Zoom user is in. Time zone to be in specific TZD format. For more information, see: https://marketplace.zoom.us/docs/api-reference/other-references/abbreviation-lists#timezones
+    The time zone the Zoom user is in. Time zone to be specific in TZD format. For more information, see: https://marketplace.zoom.us/docs/api-reference/other-references/abbreviation-lists#timezones
 
     .Parameter JobTitle
     The Zoom user's job title
@@ -480,43 +473,23 @@ function Set-ZoomUserFeatureState() {
     Set-ZoomUserDetails -email jerome@cactus.email -firstName Jerome -lastName Ramirez -license Licensed -timezone "Europe/London" -jobTitle "Head of Channel Marketing" -company "Cactus Industries (Europe)" -Location Basildon -phoneNumber "+44 1268 533333"
 #>
 function Set-ZoomUserDetails() {
-    [CmdletBinding(DefaultParameterSetName = 'email')]
     Param(
-        [Parameter(ParameterSetName="email", Mandatory=$true, ValueFromPipeline)]
-        [System.String]$email,
-        [Parameter(ParameterSetName="user", Mandatory=$true, ValueFromPipeline)]
-        [ZoomUser]$user,
-        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
+        [Parameter(Mandatory=$true)][System.String]$email, 
         [System.String]$firstName, 
-        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$lastName, 
-        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [ZoomLicenseType]$license, 
-        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$timezone, 
-        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$jobTitle, 
-        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$company, 
-        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$location, 
-        [Parameter(ParameterSetName="email")][Parameter(ParameterSetName="user")]
         [System.String]$phoneNumber
     )
-
-    process {
-        if ($PSCmdlet.ParameterSetName -eq 'user') {
-            $thisUser = $user
-        }
-        if ($PSCmdlet.ParameterSetName -eq 'email') {
-            if ( (Get-ZoomUserExists -email $email) -eq $false ) {
-                Throw "Set-ZoomUserDetails: User ""$email"" could not be found."
-                return $null
-            }
-            $thisUser = Get-ZoomUser -email $email
-        }
-        $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
+    if ( (Get-ZoomUserExists -email $email) -eq $false ) {
+        Throw "Set-ZoomUserDetails: User ""$email"" could not be found."
+        return $null
     }
+    [ZoomUser]$thisUser = [ZoomUser]::new($email)
+    $thisUser.Update($firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber)
 }
 
 <#
@@ -669,7 +642,7 @@ function Add-ZoomUser() {
         Throw "Add-ZoomUser: User ""$email"" already exists."
         return $null
     }
-    $thisUser = [ZoomUser]::Create($email, $firstName, $lastName, $license, $timezone, $jobTitle, $company, $location, $phoneNumber, $groupName)
+    $thisUser = [ZoomUser]::Create($email, $firstName, $lastName, $license, $tiemzone, $jobTitle, $company, $location, $phoneNumber, $groupName)
     return $thisUser
 }
 
@@ -1187,37 +1160,6 @@ function Get-ZoomWebinarParticipantReport() {
     $report = [ZoomWebinarParticipantReport]::new($webinarID, $resolveNames.IsPresent)
     return $report
 }
-
-<#
-    .Synopsis
-    Generates the Zoom operations log report
-
-    .Description
-    Generates the Zoom meetings report for a specific user in a defined timespan. Note: the timespan defined by the -from and -to parameters cannot be more than one month in duration.
-
-    .Parameter From
-    The start date of the report, expressed as a datetime object.
-
-    .Parameter From
-    The end date of the report, expressed as a datetime object.
-
-    .Example
-    Get-ZoomOperationsReport -from "2020-01-01" -to "2020-02-01"
-#>
-function Get-ZoomOperationsReport() {
-    Param(
-        [Parameter(Mandatory=$true)][System.DateTime]$from,
-        [Parameter(Mandatory=$true)][System.DateTime]$to
-    )
-
-    [System.Timespan]$timeDifference = $to - $from
-    if ($timeDifference.TotalDays -gt 31) {
-        Throw "Get-ZoomOperationsReport: The date range defined by the -from and -to parameters cannot be more than one month apart."
-        return $null
-    }
-    $zoomopslog = [ZoomOperationsReport]::new($from, $to)
-    return $zoomopslog
-}
 #`------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 #region Utility functions
@@ -1358,4 +1300,3 @@ Export-ModuleMember -Function Get-ZoomUsageReport -Alias gzur
 Export-ModuleMember -Function Get-ZoomMeetingReport -Alias gzmr
 Export-ModuleMember -Function Get-ZoomMeetingParticipantReport -Alias gzmpr
 Export-ModuleMember -Function Get-ZoomWebinarParticipantReport -Alias gzwpr
-Export-ModuleMember -Function Get-ZoomOperationsReport -Alias gzor
